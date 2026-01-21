@@ -1,0 +1,166 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Softer light theme (off-white, less glare) */
+    --background: 210 20% 98%;
+    --foreground: 0 0% 9%;
+
+    --card: 0 0% 99%;
+    --card-foreground: 0 0% 9%;
+
+    --popover: 0 0% 99%;
+    --popover-foreground: 0 0% 9%;
+
+    --primary: 210 79% 22%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 16% 96%;
+    --secondary-foreground: 0 0% 9%;
+
+    --muted: 210 16% 96%;
+    --muted-foreground: 0 0% 45%;
+
+    --accent: 210 16% 95%;
+    --accent-foreground: 0 0% 9%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 210 14% 88%;
+    --input: 210 14% 88%;
+    --ring: 210 79% 22%;
+
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: 0 0% 10%;
+    /* Dark gray background */
+    --foreground: 0 0% 98%;
+    /* Almost white text */
+
+    --card: 0 0% 22%;
+    /* Slightly lighter gray for cards */
+    --card-foreground: 0 0% 98%;
+
+    --popover: 0 0% 14%;
+    --popover-foreground: 0 0% 98%;
+
+    --primary: 210 79% 22%;
+    /* Keep your blue */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 0 0% 18%;
+    --secondary-foreground: 0 0% 98%;
+
+    --muted: 0 0% 18%;
+    --muted-foreground: 0 0% 60%;
+    /* Light gray for muted text */
+
+    --accent: 0 0% 22%;
+    /* Slightly lighter for hover states */
+    --accent-foreground: 0 0% 98%;
+
+    --destructive: 0 63% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 0 0% 24%;
+    /* Subtle borders */
+    --input: 0 0% 24%;
+    --ring: 210 79% 50%;
+    /* Brighter blue for focus */
+  }
+}
+
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    transition: background-color 200ms, color 200ms;
+  }
+}
+
+/* React Big Calendar Custom Styles */
+.rbc-calendar {
+  font-family: inherit;
+}
+
+.rbc-header {
+  padding: 10px 5px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  border-bottom: 2px solid hsl(var(--border));
+}
+
+.rbc-today {
+  background-color: rgba(59, 130, 246, 0.1);
+}
+
+.dark .rbc-today {
+  background-color: rgba(59, 130, 246, 0.2);
+}
+
+.rbc-event {
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-size: 0.875rem;
+}
+
+.rbc-event:hover {
+  opacity: 1 !important;
+}
+
+.rbc-toolbar button {
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-weight: 500;
+  border: 1px solid hsl(var(--border));
+  background-color: hsl(var(--card));
+  color: hsl(var(--foreground));
+}
+
+.rbc-toolbar button:hover {
+  background-color: hsl(var(--accent));
+}
+
+.rbc-toolbar button.rbc-active {
+  background: #00386C;
+  color: white;
+  border-color: #00386C;
+}
+
+.rbc-month-view {
+  border-radius: 8px;
+  border: 1px solid hsl(var(--border));
+}
+
+.rbc-day-bg {
+  border-left: 1px solid hsl(var(--border));
+}
+
+.rbc-off-range-bg {
+  background-color: hsl(var(--muted));
+}
+
+.rbc-date-cell {
+  color: hsl(var(--foreground));
+}
+
+.dark .rbc-calendar {
+  background-color: hsl(var(--card));
+  color: hsl(var(--foreground));
+}
+
+.dark .rbc-month-view,
+.dark .rbc-time-view,
+.dark .rbc-agenda-view {
+  background-color: hsl(var(--card));
+  border-color: hsl(var(--border));
+}
