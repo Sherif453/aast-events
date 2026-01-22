@@ -1,17 +1,29 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Calendar as CalendarIcon, Download, List, CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from './ui/button';
 import { Calendar, dateFnsLocalizer, View } from 'react-big-calendar';
-import { format, parse, startOfWeek, getDay, addMonths, subMonths, addDays, subDays, addWeeks, subWeeks } from 'date-fns';
+import {
+    format,
+    parse,
+    startOfWeek,
+    getDay,
+    addMonths,
+    subMonths,
+    addDays,
+    subDays,
+    addWeeks,
+    subWeeks,
+} from 'date-fns';
+import { enUS } from 'date-fns/locale';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import { useRouter } from 'next/navigation';
 import JSZip from 'jszip';
 
 const locales = {
-    'en-US': require('date-fns/locale/en-US'),
+    'en-US': enUS,
 };
 
 const localizer = dateFnsLocalizer({
@@ -50,29 +62,7 @@ export default function EventCalendar() {
     const supabase = useMemo(() => createClient(), []);
     const router = useRouter();
 
-    useEffect(() => {
-        const init = async () => {
-            const { data } = await supabase.auth.getUser();
-            setUserId(data.user?.id ?? null);
-        };
-        init();
-
-        const { data: authSub } = supabase.auth.onAuthStateChange((_event, session) => {
-            setUserId(session?.user?.id ?? null);
-        });
-
-        return () => {
-            authSub.subscription.unsubscribe();
-        };
-    }, [supabase]);
-
-    useEffect(() => {
-        if (userId) {
-            loadEvents();
-        }
-    }, [userId]);
-
-    const loadEvents = async () => {
+    const loadEvents = useCallback(async () => {
         if (!userId) return;
 
         const { data: attendees } = await supabase
@@ -94,7 +84,29 @@ export default function EventCalendar() {
 
         const eventList = attendees?.map(a => a.events).filter(Boolean) || [];
         setEvents(eventList as unknown as CalendarEvent[]);
-    };
+    }, [supabase, userId]);
+
+    useEffect(() => {
+        const init = async () => {
+            const { data } = await supabase.auth.getUser();
+            setUserId(data.user?.id ?? null);
+        };
+        init();
+
+        const { data: authSub } = supabase.auth.onAuthStateChange((_event, session) => {
+            setUserId(session?.user?.id ?? null);
+        });
+
+        return () => {
+            authSub.subscription.unsubscribe();
+        };
+    }, [supabase]);
+
+    useEffect(() => {
+        if (userId) {
+            void loadEvents();
+        }
+    }, [userId, loadEvents]);
 
     const exportToGoogleCalendar = (event: CalendarEvent) => {
         const startDate = new Date(event.start_time);

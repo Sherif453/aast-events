@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Loader2, Check, Plus, QrCode } from "lucide-react";
@@ -20,7 +20,6 @@ interface RSVPButtonProps {
 export default function RSVPButton({
     eventId,
     eventTitle,
-    userId,
     userName,
     initialAttendanceStatus,
     initialQRCode,
@@ -32,7 +31,7 @@ export default function RSVPButton({
     const [isLoading, setIsLoading] = useState(false);
 
     const router = useRouter();
-    const supabase = createClient();
+    const supabase = useMemo(() => createClient(), []);
 
     // ✅ RSVP lock: block actions 24 hours after start time
     const isRSVPLocked = useMemo(() => {
@@ -43,7 +42,7 @@ export default function RSVPButton({
     }, [startTime]);
 
     // ✅ Refetch RSVP status for current session user
-    const refetchMyAttendance = async (uid: string) => {
+    const refetchMyAttendance = useCallback(async (uid: string) => {
         const { data, error } = await supabase
             .from("attendees")
             .select("id, qr_code")
@@ -56,7 +55,7 @@ export default function RSVPButton({
         const attendingNow = !!data;
         setIsAttending(attendingNow);
         setQrCode(data?.qr_code ?? null);
-    };
+    }, [eventId, supabase]);
 
     // ✅ Fix: after login/logout, update state + refresh + refetch RSVP immediately
     useEffect(() => {
@@ -94,8 +93,7 @@ export default function RSVPButton({
             isMounted = false;
             sub.subscription.unsubscribe();
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [eventId]);
+    }, [eventId, router, supabase, refetchMyAttendance]);
 
     const handleRSVP = async () => {
         if (isRSVPLocked) {

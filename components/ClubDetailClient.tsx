@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -47,7 +47,6 @@ export default function ClubDetailClient({ clubId }: { clubId: string }) {
 
     // Controls whether Edit/Delete shows
     const [isAdmin, setIsAdmin] = useState(false);
-    const [isSuperAdmin, setIsSuperAdmin] = useState(false);
 
     const [editingNews, setEditingNews] = useState<ClubNews | null>(null);
     const [editTitle, setEditTitle] = useState('');
@@ -58,44 +57,9 @@ export default function ClubDetailClient({ clubId }: { clubId: string }) {
     const [canScrollLeft, setCanScrollLeft] = useState(false);
     const [canScrollRight, setCanScrollRight] = useState(false);
 
-    const supabase = createClient();
+    const supabase = useMemo(() => createClient(), []);
 
-    useEffect(() => {
-        loadData();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [clubId]);
-
-    useEffect(() => {
-        if (!scrollContainer) return;
-
-        // Multiple attempts to check, in case DOM isn't ready
-        const timeouts = [
-            setTimeout(checkScrollButtons, 0),
-            setTimeout(checkScrollButtons, 100),
-            setTimeout(checkScrollButtons, 300),
-        ];
-
-        // Create handler for scroll events
-        const handleScroll = () => {
-            checkScrollButtons();
-        };
-
-        // Add listeners
-        scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
-        window.addEventListener('resize', checkScrollButtons);
-
-        // Periodic check as backup
-        const checkInterval = setInterval(checkScrollButtons, 2000);
-
-        return () => {
-            scrollContainer.removeEventListener('scroll', handleScroll);
-            window.removeEventListener('resize', checkScrollButtons);
-            timeouts.forEach(clearTimeout);
-            clearInterval(checkInterval);
-        };
-    }, [scrollContainer, news]);
-
-    const checkScrollButtons = () => {
+    const checkScrollButtons = useCallback(() => {
         if (!scrollContainer) return;
 
         const scrollLeft = Math.round(scrollContainer.scrollLeft);
@@ -106,23 +70,9 @@ export default function ClubDetailClient({ clubId }: { clubId: string }) {
         setCanScrollLeft(scrollLeft > 5);
         // Show right arrow if not at the end (5px threshold)
         setCanScrollRight(scrollLeft < scrollWidth - clientWidth - 5);
-    };
+    }, [scrollContainer]);
 
-    const scroll = (direction: 'left' | 'right') => {
-        if (!scrollContainer) return;
-
-        const scrollAmount = 356; // 340px card + 16px gap
-        const targetScroll = direction === 'left'
-            ? scrollContainer.scrollLeft - scrollAmount
-            : scrollContainer.scrollLeft + scrollAmount;
-
-        scrollContainer.scrollTo({
-            left: targetScroll,
-            behavior: 'smooth'
-        });
-    };
-
-    const loadData = async () => {
+    const loadData = useCallback(async () => {
         setLoading(true);
 
         const {
@@ -133,7 +83,6 @@ export default function ClubDetailClient({ clubId }: { clubId: string }) {
 
         // ✅ Always reset admin flags first (prevents stale admin state across navigations/logout)
         setIsAdmin(false);
-        setIsSuperAdmin(false);
 
         // ✅ Check admin status (strictly: super_admin OR club_admin of THIS club)
         if (user) {
@@ -147,7 +96,6 @@ export default function ClubDetailClient({ clubId }: { clubId: string }) {
                 const isSuperAdminUser = adminData.role === 'super_admin';
                 const isClubAdminOfThisClub = adminData.role === 'club_admin' && adminData.club_id === clubId;
 
-                setIsSuperAdmin(isSuperAdminUser);
                 setIsAdmin(isSuperAdminUser || isClubAdminOfThisClub);
             }
         }
@@ -217,7 +165,56 @@ export default function ClubDetailClient({ clubId }: { clubId: string }) {
 
         setFollowerCount(count || 0);
         setLoading(false);
+    }, [supabase, clubId]);
+
+    useEffect(() => {
+        loadData();
+    }, [loadData]);
+
+    useEffect(() => {
+        if (!scrollContainer) return;
+
+        // Multiple attempts to check, in case DOM isn't ready
+        const timeouts = [
+            setTimeout(checkScrollButtons, 0),
+            setTimeout(checkScrollButtons, 100),
+            setTimeout(checkScrollButtons, 300),
+        ];
+
+        // Create handler for scroll events
+        const handleScroll = () => {
+            checkScrollButtons();
+        };
+
+        // Add listeners
+        scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
+        window.addEventListener('resize', checkScrollButtons);
+
+        // Periodic check as backup
+        const checkInterval = setInterval(checkScrollButtons, 2000);
+
+        return () => {
+            scrollContainer.removeEventListener('scroll', handleScroll);
+            window.removeEventListener('resize', checkScrollButtons);
+            timeouts.forEach(clearTimeout);
+            clearInterval(checkInterval);
+        };
+    }, [scrollContainer, news, checkScrollButtons]);
+
+    const scroll = (direction: 'left' | 'right') => {
+        if (!scrollContainer) return;
+
+        const scrollAmount = 356; // 340px card + 16px gap
+        const targetScroll = direction === 'left'
+            ? scrollContainer.scrollLeft - scrollAmount
+            : scrollContainer.scrollLeft + scrollAmount;
+
+        scrollContainer.scrollTo({
+            left: targetScroll,
+            behavior: 'smooth'
+        });
     };
+
 
     const toggleFollow = async () => {
         if (!userId) {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Bell, X } from 'lucide-react';
 import { Button } from './ui/button';
@@ -25,7 +25,7 @@ export default function NotificationCenter() {
     // ✅ Create ONE Supabase client instance for the lifetime of this component
     const supabase = useMemo(() => createClient(), []);
 
-    const loadNotifications = async (uid: string) => {
+    const loadNotifications = useCallback(async (uid: string) => {
         const { data, error } = await supabase
             .from('notifications')
             .select('*')
@@ -58,7 +58,7 @@ export default function NotificationCenter() {
 
         setNotifications(data || []);
         setUnreadCount((data || []).filter((n) => !n.read).length);
-    };
+    }, [supabase]);
 
     // ✅ Always keep userId in sync (works across refresh/login/logout)
     useEffect(() => {
@@ -106,7 +106,7 @@ export default function NotificationCenter() {
         return () => {
             supabase.removeChannel(channel);
         };
-    }, [supabase, userId]);
+    }, [supabase, userId, loadNotifications]);
 
     const markAsRead = async (id: string) => {
         if (!userId) return;

@@ -1,11 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from './ui/button';
 import { Bell, BellOff } from 'lucide-react';
 
-export default function EventReminderButton({ eventId, eventTitle, startTime }: {
+export default function EventReminderButton({
+    eventId,
+}: {
     eventId: number;
     eventTitle: string;
     startTime: string;
@@ -13,13 +15,9 @@ export default function EventReminderButton({ eventId, eventTitle, startTime }: 
     const [hasReminder, setHasReminder] = useState(false);
     const [userId, setUserId] = useState<string | null>(null);
 
-    const supabase = createClient();
+    const supabase = useMemo(() => createClient(), []);
 
-    useEffect(() => {
-        checkReminder();
-    }, [eventId]);
-
-    const checkReminder = async () => {
+    const checkReminder = useCallback(async () => {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
 
@@ -34,7 +32,11 @@ export default function EventReminderButton({ eventId, eventTitle, startTime }: 
             .maybeSingle();
 
         setHasReminder(!!data);
-    };
+    }, [supabase, eventId]);
+
+    useEffect(() => {
+        void checkReminder();
+    }, [checkReminder]);
 
     const toggleReminder = async () => {
         if (!userId) {
@@ -69,7 +71,7 @@ export default function EventReminderButton({ eventId, eventTitle, startTime }: 
                     await Notification.requestPermission();
                 }
             }
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Reminder error:', error);
             alert('Failed to set reminder');
         }

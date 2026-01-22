@@ -1,0 +1,74 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "AAST: Dev (npm run dev)",
+            "type": "shell",
+            "command": "npm run dev",
+            "isBackground": true,
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [],
+            "group": "build"
+        },
+        {
+            "label": "AAST: Build (npm run build)",
+            "type": "shell",
+            "command": "npm run build",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [],
+            "group": "build"
+        },
+        {
+            "label": "AAST: Typecheck (npm run typecheck)",
+            "type": "shell",
+            "command": "npm run typecheck",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [
+                "$tsc"
+            ],
+            "group": "test"
+        },
+        {
+            "label": "AAST: Start (npm run start)",
+            "type": "shell",
+            "command": "npm run start",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [],
+            "group": "build"
+        },
+        {
+            "label": "AAST: Lint (npm run lint)",
+            "type": "shell",
+            "command": "npm run lint",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [
+                "$eslint-stylish"
+            ],
+            "group": "test"
+        },
+        {
+            "label": "AAST: Full Check (lint + typecheck + build)",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "AAST: Lint (npm run lint)",
+                "AAST: Typecheck (npm run typecheck)",
+                "AAST: Build (npm run build)"
+            ],
+            "problemMatcher": [],
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            }
+        }
+    ]
+}

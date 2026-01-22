@@ -17,7 +17,7 @@ export async function createClient() {
                         cookiesToSet.forEach(({ name, value, options }) => {
                             cookieStore.set(name, value, options);
                         });
-                    } catch (err) {
+                    } catch {
                         // Silently fail in Server Components (read-only context)
                         // This is expected behavior for RSC
                     }

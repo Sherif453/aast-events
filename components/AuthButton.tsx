@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';  // ← Use new client
 import { Button } from '@/components/ui/button';
 import { User } from '@supabase/supabase-js';
@@ -18,7 +18,7 @@ import {
 export default function AuthButton() {
     const [user, setUser] = useState<User | null>(null);
     const [loading, setLoading] = useState(true);
-    const supabase = createClient();
+    const supabase = useMemo(() => createClient(), []);
 
     useEffect(() => {
         const checkUser = async () => {
@@ -33,7 +33,7 @@ export default function AuthButton() {
         });
 
         return () => subscription.unsubscribe();
-    }, []);
+    }, [supabase]);
 
     const handleLogout = async () => {
         await supabase.auth.signOut();

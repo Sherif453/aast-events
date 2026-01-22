@@ -11,6 +11,8 @@ import { Save, X, Image as ImageIcon } from 'lucide-react';
 import Link from 'next/link';
 
 export default function EditClubForm({ club, userId }: { club: any; userId: string }) {
+    void userId;
+
     const [formData, setFormData] = useState({
         name: club.name || '',
         description: club.description || '',

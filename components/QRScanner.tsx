@@ -179,7 +179,7 @@ export default function QRScanner({ eventId, adminId, onCheckInSuccess, disabled
                     await stopScanner();
                     await handleScan(decodedText);
                 },
-                (_errorMessage: string) => { }
+                () => { }
             );
 
             await loadCameras();

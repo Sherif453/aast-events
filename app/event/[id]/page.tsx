@@ -107,7 +107,7 @@ export default async function EventDetailsPage({
                     </div>
                     <h1 className="text-2xl font-bold text-foreground mb-3">Connection Error</h1>
                     <p className="text-muted-foreground mb-6">
-                        We're having trouble loading this event. Please check your internet connection and try again.
+                        We&apos;re having trouble loading this event. Please check your internet connection and try again.
                     </p>
                     <div className="flex gap-3 justify-center">
                         <button
