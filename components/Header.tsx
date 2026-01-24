@@ -7,6 +7,8 @@ import { createClient } from "@/lib/supabase/client";
 import { User as UserIcon, LogOut, ChevronDown, Loader2, Trophy, Shield, Users } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import NotificationCenter from "./NotificationCenter";
+import { badgeToneClass, computeBadges, type Badge } from "@/lib/badges";
+import { BadgeIcon } from "@/lib/badge-icons";
 
 const SESSION_TIMEOUT_MS = 10000; // Increased to 10s for very slow connections
 const DB_TIMEOUT_MS = 10000; // Increased to 10s for very slow connections
@@ -59,6 +61,7 @@ interface ProfileDropdownProps {
     userEmail: string | null;
     userAvatarUrl: string | null;
     isAdmin: boolean;
+    badges: Badge[];
     onLogout: () => Promise<void>;
 }
 
@@ -67,6 +70,7 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
     userEmail,
     userAvatarUrl,
     isAdmin,
+    badges,
     onLogout,
 }) => {
     const [isOpen, setIsOpen] = useState(false);
@@ -114,9 +118,26 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
                         className="absolute right-0 mt-2 w-72 origin-top-right rounded-xl bg-background shadow-2xl ring-1 ring-border divide-y divide-border z-[1100] border border-border"
                         style={{ backgroundColor: "hsl(var(--background))" }}
                     >
-                        <div className="p-4 space-y-1 bg-background">
+                        <div className="p-4 space-y-2 bg-background">
                             <p className="text-base font-bold text-foreground truncate">{userFullName || "Student"}</p>
                             <p className="text-sm text-muted-foreground truncate">{emailToShow}</p>
+
+                            {badges.length > 0 && (
+                                <div className="flex flex-wrap gap-2 pt-1">
+                                    {badges.slice(0, 3).map((b) => (
+                                        <span
+                                            key={b.id}
+                                            className={[
+                                                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold",
+                                                badgeToneClass(b.tone),
+                                            ].join(" ")}
+                                        >
+                                            <BadgeIcon id={b.id} className="h-3.5 w-3.5" />
+                                            {b.label}
+                                        </span>
+                                    ))}
+                                </div>
+                            )}
                         </div>
 
                         <div className="py-1 bg-background">
@@ -171,11 +192,12 @@ export function Header() {
     const [ready, setReady] = useState(false);
     const [user, setUser] = useState<HeaderUser | null>(null);
     const [isAdmin, setIsAdmin] = useState(false);
+    const [badges, setBadges] = useState<Badge[]>([]);
 
     const mountedRef = useRef(false);
     const reqIdRef = useRef(0);
 
-    // ✅ FIX: Separate bootstrap flag to prevent auth listener conflicts
+    //  FIX: Separate bootstrap flag to prevent auth listener conflicts
     const bootstrappedRef = useRef(false);
 
     // Cache with proper structure
@@ -184,7 +206,8 @@ export function Header() {
         ts: number;
         profile: { full_name: string | null; avatar_url: string | null; email: string | null } | null;
         isAdmin: boolean;
-    }>({ userId: null, ts: 0, profile: null, isAdmin: false });
+        badges: Badge[];
+    }>({ userId: null, ts: 0, profile: null, isAdmin: false, badges: [] });
 
     const safeSet = useCallback((fn: () => void) => {
         if (!mountedRef.current) return;
@@ -192,7 +215,7 @@ export function Header() {
     }, []);
 
     /**
-     * ✅ FIX: Improved cache check - validates userId AND freshness
+     *  FIX: Improved cache check - validates userId AND freshness
      */
     const getCachedData = useCallback((userId: string) => {
         const c = cacheRef.current;
@@ -203,7 +226,7 @@ export function Header() {
     }, []);
 
     /**
-     * ✅ FIX: Single source of truth for fetching user data with retry
+     *  FIX: Single source of truth for fetching user data with retry
      */
     const fetchUserData = useCallback(
         async (userId: string, opts?: { useCache?: boolean }) => {
@@ -215,6 +238,7 @@ export function Header() {
                 if (cached) {
                     safeSet(() => {
                         setIsAdmin(cached.isAdmin);
+                        setBadges(cached.badges);
                         setUser({
                             id: userId,
                             email: cached.profile!.email,
@@ -235,11 +259,25 @@ export function Header() {
 
                 const dbRes = await runWithTimeout(
                     async () => {
-                        const [adminQ, profileQ] = await Promise.all([
+                        const now = new Date();
+                        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+                        const [adminQ, profileQ, verQ, monthQ] = await Promise.all([
                             supabase.from("admin_users").select("role").eq("id", userId).maybeSingle(),
                             supabase.from("profiles").select("full_name, avatar_url, email").eq("id", userId).maybeSingle(),
+                            supabase
+                                .from("attendees")
+                                .select("id", { count: "exact", head: true })
+                                .eq("user_id", userId)
+                                .eq("checked_in", true),
+                            supabase
+                                .from("attendees")
+                                .select("id", { count: "exact", head: true })
+                                .eq("user_id", userId)
+                                .eq("checked_in", true)
+                                .gte("checked_in_at", monthStart.toISOString()),
                         ]);
-                        return [adminQ, profileQ];
+                        return [adminQ, profileQ, verQ, monthQ];
                     },
                     DB_TIMEOUT_MS,
                     "header_db_timeout"
@@ -258,19 +296,24 @@ export function Header() {
                     if (!dbRes.timedOut) {
                         console.error("[Header] DB fetch error:", dbRes.error);
                     }
-                    // ✅ FIX: On timeout, keep existing user data if available
+                    //  FIX: On timeout, keep existing user data if available
                     return false;
                 }
 
-                const [adminQ, profileQ] = dbRes.value as any[];
+                const [adminQ, profileQ, verQ, monthQ] = dbRes.value as any[];
 
                 if (adminQ?.error) console.error("[Header] admin_users error:", adminQ.error);
                 if (profileQ?.error) console.error("[Header] profiles error:", profileQ.error);
+                if (verQ?.error) console.error("[Header] attendees count error:", verQ.error);
+                if (monthQ?.error) console.error("[Header] attendees month count error:", monthQ.error);
 
                 const profileRow = profileQ?.data ?? null;
                 const isAdminUser = Boolean(adminQ?.data);
+                const verifiedTotal = Number(verQ?.count ?? 0);
+                const verifiedThisMonth = Number(monthQ?.count ?? 0);
+                const nextBadges = computeBadges({ verifiedTotal, verifiedThisMonth });
 
-                // ✅ FIX: Update cache with fetched data
+                //  FIX: Update cache with fetched data
                 cacheRef.current = {
                     userId,
                     ts: Date.now(),
@@ -282,10 +325,12 @@ export function Header() {
                         }
                         : null,
                     isAdmin: isAdminUser,
+                    badges: nextBadges,
                 };
 
                 safeSet(() => {
                     setIsAdmin(isAdminUser);
+                    setBadges(nextBadges);
                     setUser({
                         id: userId,
                         email: profileRow?.email ?? null,
@@ -303,7 +348,7 @@ export function Header() {
     );
 
     /**
-     * ✅ FIX: Simplified session refresh
+     *  FIX: Simplified session refresh
      */
     const refreshSession = useCallback(
         async (reason: string, opts?: { useCache?: boolean }) => {
@@ -327,12 +372,13 @@ export function Header() {
             const sessionUser = sessionRes.value.data.session?.user ?? null;
 
             if (!sessionUser) {
-                // ✅ FIX: Only clear if we're sure there's no session
+                //  FIX: Only clear if we're sure there's no session
                 // Don't clear on transient failures during tab switch
                 if (reason === "auth_state_change" || reason === "boot") {
                     safeSet(() => {
                         setUser(null);
                         setIsAdmin(false);
+                        setBadges([]);
                     });
                 }
                 return;
@@ -353,7 +399,7 @@ export function Header() {
         }
     }, [supabase]);
 
-    // ✅ FIX: Bootstrap ONCE with retry + absolute timeout failsafe
+    //  FIX: Bootstrap ONCE with retry + absolute timeout failsafe
     useEffect(() => {
         if (bootstrappedRef.current) return;
 
@@ -362,7 +408,7 @@ export function Header() {
 
         let cancelled = false;
 
-        // ✅ CRITICAL: Absolute failsafe - if we're not ready after 15s, force ready state
+        //  CRITICAL: Absolute failsafe - if we're not ready after 15s, force ready state
         const failsafeTimeout = setTimeout(() => {
             if (!mountedRef.current || cancelled) return;
             console.warn("[Header boot] Failsafe triggered - forcing ready state");
@@ -410,6 +456,7 @@ export function Header() {
                         safeSet(() => {
                             setUser(null);
                             setIsAdmin(false);
+                            setBadges([]);
                             setReady(true);
                         });
                         return;
@@ -444,19 +491,20 @@ export function Header() {
         };
     }, [supabase, fetchUserData, safeSet]);
 
-    // ✅ FIX: Auth state listener - only after bootstrap
+    //  FIX: Auth state listener - only after bootstrap
     useEffect(() => {
         if (!ready || !bootstrappedRef.current) return;
 
         const { data: listener } = supabase.auth.onAuthStateChange(async (event, session) => {
             if (!mountedRef.current) return;
 
-            // ✅ FIX: Handle SIGNED_OUT explicitly
+            //  FIX: Handle SIGNED_OUT explicitly
             if (event === "SIGNED_OUT") {
                 safeSet(() => {
                     setUser(null);
                     setIsAdmin(false);
-                    cacheRef.current = { userId: null, ts: 0, profile: null, isAdmin: false };
+                    setBadges([]);
+                    cacheRef.current = { userId: null, ts: 0, profile: null, isAdmin: false, badges: [] };
                 });
                 router.refresh();
                 return;
@@ -465,7 +513,7 @@ export function Header() {
             const sessionUser = session?.user ?? null;
 
             if (sessionUser) {
-                // ✅ FIX: Use cache for auth state changes (tab switches)
+                //  FIX: Use cache for auth state changes (tab switches)
                 await fetchUserData(sessionUser.id, { useCache: true });
             }
         });
@@ -473,7 +521,7 @@ export function Header() {
         return () => listener?.subscription?.unsubscribe();
     }, [supabase, ready, fetchUserData, safeSet, router]);
 
-    // ✅ FIX: Tab visibility - use cache aggressively
+    //  FIX: Tab visibility - use cache aggressively
     useEffect(() => {
         if (!ready) return;
 
@@ -511,7 +559,7 @@ export function Header() {
         };
     }, [ready, user?.id, refreshSession]);
 
-    // ✅ FIX: Profile changed event - invalidate cache and force refresh
+    //  FIX: Profile changed event - invalidate cache and force refresh
     useEffect(() => {
         if (!ready) return;
 
@@ -582,6 +630,7 @@ export function Header() {
                             userEmail={user.email}
                             userAvatarUrl={user.avatar_url}
                             isAdmin={isAdmin}
+                            badges={badges}
                             onLogout={handleLogout}
                         />
                     ) : (

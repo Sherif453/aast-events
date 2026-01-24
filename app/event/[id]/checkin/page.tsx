@@ -25,7 +25,7 @@ export default async function CheckInPage({
 
     if (!user) redirect("/auth/login");
 
-    // ✅ Fetch admin role + club scope
+    //  Fetch admin role + club scope
     const { data: adminData, error: adminErr } = await supabase
         .from("admin_users")
         .select("id, role, club_id")
@@ -41,7 +41,7 @@ export default async function CheckInPage({
     const adminRole = adminData.role as AdminRole;
     const adminClubId = adminData.club_id ?? null;
 
-    // ✅ Fetch event details
+    //  Fetch event details
     const { data: event, error: eventError } = await supabase
         .from("events")
         .select("*")
@@ -55,7 +55,7 @@ export default async function CheckInPage({
 
     const eventClubId = event.club_id ?? null;
 
-    // ✅ Allow access only if:
+    //  Allow access only if:
     // super_admin OR (club_admin/event_volunteer AND same club)
     const isAllowed =
         adminRole === "super_admin" ||
@@ -65,7 +65,7 @@ export default async function CheckInPage({
 
     if (!isAllowed) redirect("/");
 
-    // ✅ Fetch RSVPs
+    //  Fetch RSVPs
     const { data: rawAttendees, error: attendeesErr } = await supabase
         .from("attendees")
         .select("id, user_id, checked_in, checked_in_at, qr_code, created_at")
@@ -76,7 +76,7 @@ export default async function CheckInPage({
         console.error("Attendees fetch error:", attendeesErr);
     }
 
-    // ✅ Fetch profiles (robust)
+    //  Fetch profiles (robust)
     let attendees: any[] = [];
     if (rawAttendees && rawAttendees.length > 0) {
         const userIds = Array.from(new Set(rawAttendees.map((a) => a.user_id)));

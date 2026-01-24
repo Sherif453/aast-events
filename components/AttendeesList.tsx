@@ -3,9 +3,10 @@ import { AttendeeItem } from "@/components/AvatarStack";
 
 interface AttendeesListProps {
     attendees: AttendeeItem[];
+    scrollAfter?: number;
 }
 
-export function AttendeesList({ attendees }: AttendeesListProps) {
+export function AttendeesList({ attendees, scrollAfter = 10 }: AttendeesListProps) {
     if (attendees.length === 0) {
         return (
             <p className="text-sm text-gray-500 text-center py-4">
@@ -14,8 +15,10 @@ export function AttendeesList({ attendees }: AttendeesListProps) {
         );
     }
 
+    const shouldScroll = attendees.length > scrollAfter;
+
     return (
-        <div className="space-y-3 max-h-96 overflow-y-auto">
+        <div className={`space-y-3${shouldScroll ? " max-h-96 overflow-y-auto pr-1" : ""}`}>
             {attendees.map((attendee, index) => {
                 const name = attendee.profiles?.full_name || "Anonymous User";
                 const initials = name

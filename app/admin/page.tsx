@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { BarChart3, Users, Calendar, Plus, FileDown, Shield } from "lucide-react";
+import { BarChart3, Users, Calendar, Plus, FileDown, Shield, ScrollText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 type Role = "super_admin" | "club_admin" | "event_volunteer" | "read_only_analytics";
@@ -51,7 +51,7 @@ export default async function AdminDashboardPage() {
         redirect("/");
     }
 
-    // ✅ Show global Clubs/Users for super_admin + analytics viewer
+    //  Show global Clubs/Users for super_admin + analytics viewer
     const canSeeGlobalCounts = role === "super_admin" || role === "read_only_analytics";
 
     const roleLabels: Record<Role, { name: string; color: string; bg: string }> = {
@@ -67,6 +67,7 @@ export default async function AdminDashboardPage() {
     const canManageClubs = role === "super_admin" || role === "club_admin";
     const canManageAdminUsers = role === "super_admin" || role === "club_admin";
     const canViewAnalytics = role === "super_admin" || role === "club_admin" || role === "read_only_analytics";
+    const canViewAuditLog = role === "super_admin" || role === "club_admin";
 
     // ---------- STATS ----------
     // Always use RPC for scoped counts (super_admin/read_only_analytics => global; club_admin/volunteer => club scoped)
@@ -166,6 +167,16 @@ export default async function AdminDashboardPage() {
 
                     {canViewAnalytics && (
                         <ActionCard title="Analytics" description="View event analytics" icon={<BarChart3 className="h-6 w-6" />} href="/admin/analytics" color="bg-cyan-600" />
+                    )}
+
+                    {canViewAuditLog && (
+                        <ActionCard
+                            title="Audit Log"
+                            description="See who edited or deleted events"
+                            icon={<ScrollText className="h-6 w-6" />}
+                            href="/admin/audit"
+                            color="bg-slate-700"
+                        />
                     )}
 
                     {canManageEvents && (

@@ -3,7 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
 
-  // ✅ Hide Supabase source map warnings (they're harmless noise)
+  //  Hide Supabase source map warnings (they're harmless noise)
   webpack: (config, { isServer }) => {
     if (isServer) {
       config.ignoreWarnings = [

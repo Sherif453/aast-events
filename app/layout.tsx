@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { Header } from "@/components/Header";
 import { ThemeProvider } from "next-themes";
+import AuthProfileSync from "@/components/AuthProfileSync";
 
 export const metadata: Metadata = {
   title: "AAST Events",
@@ -18,6 +19,7 @@ export default function RootLayout({
       <body>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <Header />
+          <AuthProfileSync />
           {children}
         </ThemeProvider>
       </body>

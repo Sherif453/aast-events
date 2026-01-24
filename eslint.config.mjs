@@ -17,14 +17,13 @@ const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
 
-  // Project-specific overrides (pragmatic: allow vibecoding, tighten later)
+  // Project-specific overrides (pragmatic: allow , tighten later)
   {
     rules: {
-      // You currently have many `any` usages; block later, not now.
       "@typescript-eslint/no-explicit-any": "off",
 
       // React 19 purity lint is noisy for server components / rendering-time date math.
-      // We'll fix real issues, but don't block builds on this rule.
+      // Fix real issues, but don't block builds on this rule.
       "react-hooks/purity": "off",
       "react-hooks/set-state-in-effect": "off",
       "@next/next/no-img-element": "off",

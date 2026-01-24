@@ -22,7 +22,7 @@ export default function NotificationCenter() {
     const [isOpen, setIsOpen] = useState(false);
     const [userId, setUserId] = useState<string | null>(null);
 
-    // ✅ Create ONE Supabase client instance for the lifetime of this component
+    //  Create ONE Supabase client instance for the lifetime of this component
     const supabase = useMemo(() => createClient(), []);
 
     const loadNotifications = useCallback(async (uid: string) => {
@@ -34,7 +34,7 @@ export default function NotificationCenter() {
             .limit(20);
 
         if (error) {
-            // ✅ Optional: don’t spam console on transient dev/network disconnects
+            //  Optional: don’t spam console on transient dev/network disconnects
             const msg = (error as any)?.message?.toLowerCase?.() || '';
             const isTransient =
                 msg.includes('fetch') ||
@@ -44,8 +44,8 @@ export default function NotificationCenter() {
                 msg.includes('load failed');
 
             if (!isTransient) {
-                // ✅ Better log (so you actually see what Supabase returned)
-                console.error('❌ Failed to load notifications:', {
+                //  Better log (so you actually see what Supabase returned)
+                console.error(' Failed to load notifications:', {
                     message: (error as any)?.message,
                     details: (error as any)?.details,
                     hint: (error as any)?.hint,
@@ -60,7 +60,7 @@ export default function NotificationCenter() {
         setUnreadCount((data || []).filter((n) => !n.read).length);
     }, [supabase]);
 
-    // ✅ Always keep userId in sync (works across refresh/login/logout)
+    //  Always keep userId in sync (works across refresh/login/logout)
     useEffect(() => {
         const init = async () => {
             const { data } = await supabase.auth.getUser();
@@ -77,7 +77,7 @@ export default function NotificationCenter() {
         };
     }, [supabase]);
 
-    // ✅ Realtime subscription tied to userId
+    //  Realtime subscription tied to userId
     useEffect(() => {
         if (!userId) return;
 

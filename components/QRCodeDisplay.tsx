@@ -1,27 +1,92 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
 import { Button } from '@/components/ui/button';
 import { Download, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 
 interface QRCodeDisplayProps {
-    qrCode: string;
+    eventId: string;
     eventTitle: string;
     userName: string;
     onClose: () => void;
 }
 
-export default function QRCodeDisplay({ qrCode, eventTitle, userName, onClose }: QRCodeDisplayProps) {
+const REFRESH_EVERY_MS = 12_000;
+
+export default function QRCodeDisplay({ eventId, eventTitle, userName, onClose }: QRCodeDisplayProps) {
     const [qrImage, setQrImage] = useState<string>('');
     const [mounted, setMounted] = useState(false);
+    const [token, setToken] = useState<string>('');
+    const [expiresAt, setExpiresAt] = useState<number | null>(null);
+    const [loadingToken, setLoadingToken] = useState(true);
+    const [tokenError, setTokenError] = useState<string | null>(null);
+    const [nowSec, setNowSec] = useState(0);
+
+    const secondsLeft = useMemo(() => {
+        if (!expiresAt) return null;
+        return Math.max(0, expiresAt - nowSec);
+    }, [expiresAt, nowSec]);
+
+    const fetchToken = useCallback(async () => {
+        setLoadingToken(true);
+        setTokenError(null);
+        try {
+            const res = await fetch(`/api/ticket/qr?eventId=${encodeURIComponent(eventId)}`, {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' },
+            });
+
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                const msg = typeof json?.error === 'string' ? json.error : 'Failed to load ticket';
+                throw new Error(msg);
+            }
+
+            const nextToken = String(json?.token || '');
+            const nextExp = Number(json?.expiresAt || 0);
+            if (!nextToken || !Number.isFinite(nextExp) || nextExp <= 0) throw new Error('Invalid ticket token');
+
+            setToken(nextToken);
+            setExpiresAt(nextExp);
+        } catch (e: any) {
+            setTokenError(e?.message || 'Failed to load ticket');
+            setToken('');
+            setExpiresAt(null);
+        } finally {
+            setLoadingToken(false);
+        }
+    }, [eventId]);
 
     useEffect(() => {
         setMounted(true);
         document.body.style.overflow = 'hidden';
+        void fetchToken();
 
-        QRCode.toDataURL(qrCode, {
+        return () => {
+            document.body.style.overflow = 'unset';
+        };
+    }, [eventId, fetchToken]);
+
+    useEffect(() => {
+        if (!mounted) return;
+        setNowSec(Math.floor(Date.now() / 1000));
+        const id = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 1000);
+        return () => clearInterval(id);
+    }, [mounted]);
+
+    useEffect(() => {
+        if (!mounted) return;
+        if (!eventId) return;
+
+        const id = setInterval(() => void fetchToken(), REFRESH_EVERY_MS);
+        return () => clearInterval(id);
+    }, [mounted, eventId, fetchToken]);
+
+    useEffect(() => {
+        if (!token) return;
+        void QRCode.toDataURL(token, {
             width: 300,
             margin: 2,
             color: {
@@ -29,11 +94,7 @@ export default function QRCodeDisplay({ qrCode, eventTitle, userName, onClose }:
                 light: '#FFFFFF',
             },
         }).then(setQrImage);
-
-        return () => {
-            document.body.style.overflow = 'unset';
-        };
-    }, [qrCode]);
+    }, [token]);
 
     if (!mounted) return null;
 
@@ -59,8 +120,16 @@ export default function QRCodeDisplay({ qrCode, eventTitle, userName, onClose }:
                     <p className="text-xs text-muted-foreground mb-6">{userName}</p>
 
                     <div className="bg-white p-6 rounded-xl border-4 border-[#00386C] inline-block shadow-lg">
-                        {qrImage ? (
+                        {qrImage && !loadingToken ? (
                             <img src={qrImage} alt="QR Code" className="w-64 h-64" />
+                        ) : tokenError ? (
+                            <div className="w-64 h-64 flex flex-col items-center justify-center text-center px-4">
+                                <p className="text-sm font-semibold text-foreground mb-2">Ticket unavailable</p>
+                                <p className="text-xs text-muted-foreground mb-4">{tokenError}</p>
+                                <Button onClick={() => void fetchToken()} size="sm" className="bg-[#00386C] hover:bg-[#00509d] text-white">
+                                    Retry
+                                </Button>
+                            </div>
                         ) : (
                             <div className="w-64 h-64 flex items-center justify-center">
                                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#00386C]"></div>
@@ -69,7 +138,7 @@ export default function QRCodeDisplay({ qrCode, eventTitle, userName, onClose }:
                     </div>
 
                     <p className="text-xs text-muted-foreground mt-4 mb-6">
-                        Show this QR code at the event entrance
+                        {secondsLeft !== null ? `Auto-refreshing (valid for ~${secondsLeft}s)` : 'Show this QR code at the event entrance'}
                     </p>
 
                     <Button
@@ -81,7 +150,7 @@ export default function QRCodeDisplay({ qrCode, eventTitle, userName, onClose }:
                             link.click();
                         }}
                         className="w-full bg-[#00386C] hover:bg-[#00509d] text-white"
-                        disabled={!qrImage}
+                        disabled={!qrImage || loadingToken}
                     >
                         <Download className="h-4 w-4 mr-2" />
                         Download Ticket

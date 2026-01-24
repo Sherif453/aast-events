@@ -17,8 +17,10 @@ import {
     TrendingUp,
     Trash2,
     Pencil,
+    MessageSquare,
 } from 'lucide-react';
 import { EventCard } from '@/components/EventCard';
+import ClubChatPanel from '@/components/ClubChatPanel';
 
 interface Club {
     id: string;
@@ -36,6 +38,21 @@ interface ClubNews {
     created_at: string;
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+    return new Promise((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error(label)), ms);
+        promise
+            .then((v) => {
+                clearTimeout(t);
+                resolve(v);
+            })
+            .catch((e) => {
+                clearTimeout(t);
+                reject(e);
+            });
+    });
+}
+
 export default function ClubDetailClient({ clubId }: { clubId: string }) {
     const [club, setClub] = useState<Club | null>(null);
     const [events, setEvents] = useState<any[]>([]);
@@ -44,6 +61,7 @@ export default function ClubDetailClient({ clubId }: { clubId: string }) {
     const [followerCount, setFollowerCount] = useState(0);
     const [loading, setLoading] = useState(true);
     const [userId, setUserId] = useState<string | null>(null);
+    const [chatOpen, setChatOpen] = useState(false);
 
     // Controls whether Edit/Delete shows
     const [isAdmin, setIsAdmin] = useState(false);
@@ -58,6 +76,26 @@ export default function ClubDetailClient({ clubId }: { clubId: string }) {
     const [canScrollRight, setCanScrollRight] = useState(false);
 
     const supabase = useMemo(() => createClient(), []);
+
+    // Auth persistence guard: never clear user state on transient failures.
+    // Only clear on the explicit SIGNED_OUT event.
+    useEffect(() => {
+        const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+            if (event === 'SIGNED_OUT') {
+                setUserId(null);
+                setIsAdmin(false);
+                setIsFollowing(false);
+                return;
+            }
+
+            const next = session?.user?.id ?? null;
+            if (next) setUserId((prev) => (prev === next ? prev : next));
+        });
+
+        return () => {
+            sub.subscription.unsubscribe();
+        };
+    }, [supabase]);
 
     const checkScrollButtons = useCallback(() => {
         if (!scrollContainer) return;
@@ -75,97 +113,173 @@ export default function ClubDetailClient({ clubId }: { clubId: string }) {
     const loadData = useCallback(async () => {
         setLoading(true);
 
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
+        try {
+            let currentUserId: string | null = userId;
 
-        setUserId(user?.id || null);
-
-        // ✅ Always reset admin flags first (prevents stale admin state across navigations/logout)
-        setIsAdmin(false);
-
-        // ✅ Check admin status (strictly: super_admin OR club_admin of THIS club)
-        if (user) {
-            const { data: adminData, error: adminErr } = await supabase
-                .from('admin_users')
-                .select('role, club_id')
-                .eq('id', user.id)
-                .maybeSingle();
-
-            if (!adminErr && adminData) {
-                const isSuperAdminUser = adminData.role === 'super_admin';
-                const isClubAdminOfThisClub = adminData.role === 'club_admin' && adminData.club_id === clubId;
-
-                setIsAdmin(isSuperAdminUser || isClubAdminOfThisClub);
+            // Seed from local session first (fast/local) to avoid auth flicker.
+            try {
+                const { data: sessionData } = await withTimeout(supabase.auth.getSession(), 2500, 'club_session_timeout');
+                const sessionUserId = sessionData.session?.user?.id ?? null;
+                if (sessionUserId) {
+                    currentUserId = sessionUserId;
+                    setUserId((prev) => (prev === sessionUserId ? prev : sessionUserId));
+                }
+            } catch {
+                // ignore transient session errors
             }
+
+            // Best-effort verified user refresh; never clear on failure.
+            try {
+                const { data } = await withTimeout(supabase.auth.getUser(), 3500, 'club_getuser_timeout');
+                if (data.user?.id) {
+                    currentUserId = data.user.id;
+                    setUserId((prev) => (prev === data.user!.id ? prev : data.user!.id));
+                }
+            } catch {
+                // ignore
+            }
+
+            const nowIso = new Date().toISOString();
+
+            const [adminRes, clubRes, eventsRes, newsRes, followRes, followerCountRes] = await Promise.allSettled([
+                currentUserId
+                    ? withTimeout(
+                        Promise.resolve().then(async () => {
+                            return await supabase.from('admin_users').select('role, club_id').eq('id', currentUserId!).maybeSingle();
+                        }),
+                        5000,
+                        'club_admin_timeout'
+                    )
+                    : Promise.resolve(null as any),
+                withTimeout(
+                    Promise.resolve().then(async () => {
+                        return await supabase.from('clubs').select('*').eq('id', clubId).single();
+                    }),
+                    8000,
+                    'club_load_timeout'
+                ),
+                withTimeout(
+                    Promise.resolve().then(async () => {
+                        return await supabase
+                            .from('events')
+                            .select(
+                                `
+                                *,
+                                clubs (
+                                    id,
+                                    name
+                                )
+                            `
+                            )
+                            .eq('club_id', clubId)
+                            .gte('start_time', nowIso)
+                            .order('start_time', { ascending: true });
+                    }),
+                    8000,
+                    'club_events_timeout'
+                ),
+                withTimeout(
+                    Promise.resolve().then(async () => {
+                        return await supabase
+                            .from('club_news')
+                            .select('*')
+                            .eq('club_id', clubId)
+                            .order('created_at', { ascending: false })
+                            .limit(10);
+                    }),
+                    8000,
+                    'club_news_timeout'
+                ),
+                currentUserId
+                    ? withTimeout(
+                        Promise.resolve().then(async () => {
+                            return await supabase
+                                .from('club_followers')
+                                .select('id')
+                                .eq('user_id', currentUserId!)
+                                .eq('club_id', clubId)
+                                .maybeSingle();
+                        }),
+                        5000,
+                        'club_follow_timeout'
+                    )
+                    : Promise.resolve(null as any),
+                withTimeout(
+                    Promise.resolve().then(async () => {
+                        return await supabase
+                            .from('club_followers')
+                            .select('id', { count: 'exact', head: true })
+                            .eq('club_id', clubId);
+                    }),
+                    6000,
+                    'club_follow_count_timeout'
+                ),
+            ]);
+
+            if (adminRes.status === 'fulfilled' && adminRes.value) {
+                const { data: adminData, error: adminErr } = adminRes.value as any;
+                if (!adminErr && adminData) {
+                    const isSuperAdminUser = adminData.role === 'super_admin';
+                    const isClubAdminOfThisClub = adminData.role === 'club_admin' && adminData.club_id === clubId;
+                    setIsAdmin(isSuperAdminUser || isClubAdminOfThisClub);
+                } else if (!currentUserId) {
+                    setIsAdmin(false);
+                }
+            } else if (!currentUserId) {
+                setIsAdmin(false);
+            }
+
+            if (clubRes.status === 'fulfilled') {
+                const { data: clubData } = clubRes.value as any;
+                setClub((clubData as any) ?? null);
+            } else {
+                console.error('[Club] club load failed:', clubRes.reason);
+                setClub(null);
+            }
+
+            if (eventsRes.status === 'fulfilled') {
+                const { data: eventsData } = eventsRes.value as any;
+                const eventsWithCounts = ((eventsData as any[]) ?? []).map((event: any) => ({
+                    ...event,
+                    attendee_count: event.attendee_count ?? 0,
+                    checked_in_count: event.checked_in_count ?? 0,
+                    club_name: event.clubs?.name || null,
+                    club_id: event.clubs?.id || event.club_id || null,
+                }));
+                setEvents(eventsWithCounts);
+            } else {
+                console.error('[Club] events load failed:', eventsRes.reason);
+                setEvents([]);
+            }
+
+            if (newsRes.status === 'fulfilled') {
+                const { data: newsData } = newsRes.value as any;
+                setNews(((newsData as any[]) ?? []) as ClubNews[]);
+            } else {
+                console.error('[Club] news load failed:', newsRes.reason);
+                setNews([]);
+            }
+
+            if (followRes.status === 'fulfilled' && followRes.value) {
+                const { data: followData } = followRes.value as any;
+                setIsFollowing(!!followData);
+            } else if (!currentUserId && !userId) {
+                setIsFollowing(false);
+            }
+
+            if (followerCountRes.status === 'fulfilled') {
+                const { count } = followerCountRes.value as any;
+                setFollowerCount(count || 0);
+            } else {
+                console.error('[Club] follower count failed:', followerCountRes.reason);
+                setFollowerCount(0);
+            }
+        } catch (e) {
+            console.error('[Club] loadData unexpected error:', e);
+        } finally {
+            setLoading(false);
         }
-
-        const { data: clubData } = await supabase
-            .from('clubs')
-            .select('*')
-            .eq('id', clubId)
-            .single();
-
-        setClub(clubData);
-
-        const { data: eventsData } = await supabase
-            .from('events')
-            .select(
-                `
-                *,
-                clubs (
-                    id,
-                    name
-                )
-            `
-            )
-            .eq('club_id', clubId)
-            .gte('start_time', new Date().toISOString())
-            .order('start_time', { ascending: true });
-
-        // ✅ Counts are already maintained in DB via triggers:
-        // attendee_count = RSVP count
-        // checked_in_count = checked-in count
-        const eventsWithCounts = (eventsData || []).map((event: any) => ({
-            ...event,
-            attendee_count: event.attendee_count ?? 0,
-            checked_in_count: event.checked_in_count ?? 0,
-            club_name: event.clubs?.name || null,
-            club_id: event.clubs?.id || event.club_id || null,
-        }));
-
-        setEvents(eventsWithCounts);
-
-        const { data: newsData } = await supabase
-            .from('club_news')
-            .select('*')
-            .eq('club_id', clubId)
-            .order('created_at', { ascending: false })
-            .limit(10);
-
-        setNews(newsData || []);
-
-        if (user) {
-            const { data: followData } = await supabase
-                .from('club_followers')
-                .select('id')
-                .eq('user_id', user.id)
-                .eq('club_id', clubId)
-                .maybeSingle();
-
-            setIsFollowing(!!followData);
-        } else {
-            setIsFollowing(false);
-        }
-
-        const { count } = await supabase
-            .from('club_followers')
-            .select('id', { count: 'exact', head: true })
-            .eq('club_id', clubId);
-
-        setFollowerCount(count || 0);
-        setLoading(false);
-    }, [supabase, clubId]);
+    }, [supabase, clubId, userId]);
 
     useEffect(() => {
         loadData();
@@ -326,9 +440,9 @@ export default function ClubDetailClient({ clubId }: { clubId: string }) {
             <div className="min-h-screen bg-background flex items-center justify-center">
                 <div className="text-center">
                     <h1 className="text-2xl font-bold text-foreground mb-4">Club Not Found</h1>
-                    <Link href="/clubs">
-                        <Button>Back to Clubs</Button>
-                    </Link>
+                    <Button asChild>
+                        <Link href="/clubs">Back to Clubs</Link>
+                    </Button>
                 </div>
             </div>
         );
@@ -495,30 +609,43 @@ export default function ClubDetailClient({ clubId }: { clubId: string }) {
                                     </div>
                                 </div>
 
-                                <Button
-                                    onClick={toggleFollow}
-                                    variant={isFollowing ? 'outline' : 'secondary'}
-                                    size="lg"
-                                    className={`
-                    shadow-xl font-bold text-base px-8
-                    ${isFollowing
-                                            ? 'bg-white/10 backdrop-blur-sm border-2 border-white/50 text-white hover:bg-white/20'
-                                            : 'bg-white text-purple-600 hover:bg-white/90'
-                                        }
-                  `}
-                                >
-                                    {isFollowing ? (
-                                        <>
-                                            <BellOff className="h-5 w-5 mr-2" />
-                                            Following
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Bell className="h-5 w-5 mr-2" />
-                                            Follow Club
-                                        </>
-                                    )}
-                                </Button>
+                                <div className="flex items-center gap-3">
+                                    <Button
+                                        onClick={toggleFollow}
+                                        variant={isFollowing ? 'outline' : 'secondary'}
+                                        size="lg"
+                                        className={`
+                      shadow-xl font-bold text-base px-8
+                      ${isFollowing
+                                                ? 'bg-white/10 backdrop-blur-sm border-2 border-white/50 text-white hover:bg-white/20'
+                                                : 'bg-white text-purple-600 hover:bg-white/90'
+                                            }
+                    `}
+                                    >
+                                        {isFollowing ? (
+                                            <>
+                                                <BellOff className="h-5 w-5 mr-2" />
+                                                Following
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Bell className="h-5 w-5 mr-2" />
+                                                Follow Club
+                                            </>
+                                        )}
+                                    </Button>
+
+                                    <Button
+                                        onClick={() => setChatOpen((s) => !s)}
+                                        variant="outline"
+                                        size="lg"
+                                        className="shadow-xl font-bold text-base px-6 bg-white/10 backdrop-blur-sm border-2 border-white/50 text-white hover:bg-white/20"
+                                        title="Open club chat"
+                                    >
+                                        <MessageSquare className="h-5 w-5 mr-2" />
+                                        {chatOpen ? 'Close Chat' : 'Chat'}
+                                    </Button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -533,7 +660,7 @@ export default function ClubDetailClient({ clubId }: { clubId: string }) {
                             Latest Updates
                         </h2>
 
-                        {/* ✅ Horizontal scroll with arrow navigation */}
+                        {/*  Horizontal scroll with arrow navigation */}
                         <div className="relative group">
                             {/* Left Arrow - Always render but hide with opacity */}
                             <button
@@ -652,6 +779,16 @@ export default function ClubDetailClient({ clubId }: { clubId: string }) {
                     )}
                 </section>
             </div>
+
+            <ClubChatPanel
+                clubId={clubId}
+                clubName={club.name}
+                isFollowing={isFollowing}
+                isAdmin={isAdmin}
+                open={chatOpen}
+                initialUserId={userId}
+                onClose={() => setChatOpen(false)}
+            />
         </div>
     );
 }

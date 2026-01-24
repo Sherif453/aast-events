@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-// ✅ Next.js expects `proxy` (new convention)
+//  Next.js expects `proxy` (new convention)
 export async function proxy(request: NextRequest) {
     const response = NextResponse.next({
         request: { headers: request.headers },
@@ -24,8 +24,8 @@ export async function proxy(request: NextRequest) {
         }
     );
 
-    // ✅ triggers refresh/rotation when needed
-    // ✅ never redirect / never throw
+    //  triggers refresh/rotation when needed
+    //  never redirect / never throw
     try {
         await supabase.auth.getClaims();
     } catch {

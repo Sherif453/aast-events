@@ -138,7 +138,7 @@ export default function EventForm({ mode, clubs, userId, role, adminClubId, init
 
             if (error) throw error;
 
-            console.log('✅ RPC notified followers:', data);
+            console.log(' RPC notified followers:', data);
         } catch (error) {
             console.error('Failed to notify followers (non-critical):', error);
         }
@@ -157,7 +157,7 @@ export default function EventForm({ mode, clubs, userId, role, adminClubId, init
                 const uploadedUrl = await uploadImage();
                 if (uploadedUrl) {
                     imageUrl = uploadedUrl;
-                    console.log('✅ Image uploaded:', uploadedUrl);
+                    console.log(' Image uploaded:', uploadedUrl);
                 } else {
                     throw new Error('Image upload failed');
                 }
@@ -184,11 +184,11 @@ export default function EventForm({ mode, clubs, userId, role, adminClubId, init
                     .single();
 
                 if (error) {
-                    console.error('❌ Supabase insert error:', error);
+                    console.error(' Supabase insert error:', error);
                     throw error;
                 }
 
-                console.log('✅ Event created with ID:', newEvent?.id);
+                console.log(' Event created with ID:', newEvent?.id);
 
                 // Step 4: Notify followers via RPC (only if club event)
                 if (formData.club_id && newEvent?.id) {
@@ -203,18 +203,18 @@ export default function EventForm({ mode, clubs, userId, role, adminClubId, init
                     .eq('id', initialData.id);
 
                 if (error) {
-                    console.error('❌ Supabase update error:', error);
+                    console.error(' Supabase update error:', error);
                     throw error;
                 }
 
-                console.log('✅ Event updated successfully');
+                console.log(' Event updated successfully');
             }
 
             console.log('🎉 Success! Redirecting...');
             router.push('/admin/events');
             router.refresh();
         } catch (error: any) {
-            console.error('❌ Submit error details:', {
+            console.error(' Submit error details:', {
                 message: error?.message,
                 code: error?.code,
                 details: error?.details,

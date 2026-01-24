@@ -21,8 +21,15 @@ import {
     ShieldCheck,
     Link2,
     Unlink as UnlinkIcon,
+    Trophy,
+    EyeOff,
+    Lock,
+    Check,
 } from "lucide-react";
 import EventCalendar from "@/components/EventCalendar";
+import { badgeToneClass, computeBadges, type Badge } from "@/lib/badges";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { BadgeIcon } from "@/lib/badge-icons";
 
 type ProfileRow = {
     full_name: string | null;
@@ -112,6 +119,15 @@ export default function ProfileClient() {
 
     const [rsvpCount, setRsvpCount] = useState<number>(0);
     const [verifiedCount, setVerifiedCount] = useState<number>(0);
+    const [verifiedThisMonth, setVerifiedThisMonth] = useState<number>(0);
+    const [badges, setBadges] = useState<Badge[]>([]);
+
+    const [isAdminUser, setIsAdminUser] = useState(false);
+    const [privacy, setPrivacy] = useState<{ hide_from_leaderboard: boolean; anonymous_polls: boolean }>({
+        hide_from_leaderboard: false,
+        anonymous_polls: false,
+    });
+    const [privacyBusy, setPrivacyBusy] = useState(false);
 
     const [isEditing, setIsEditing] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
@@ -120,8 +136,8 @@ export default function ProfileClient() {
     const [profileData, setProfileData] = useState({ full_name: "", major: "", year: "" });
 
     const [identities, setIdentities] = useState<UserIdentity[]>([]);
-    const [identitiesFresh, setIdentitiesFresh] = useState(false); // ✅ NEW: true only after a successful identities load
-    const identitiesReqIdRef = useRef(0); // ✅ NEW: avoid out-of-order identity updates
+    const [identitiesFresh, setIdentitiesFresh] = useState(false); //   true only after a successful identities load
+    const identitiesReqIdRef = useRef(0); //   avoid out-of-order identity updates
 
     const [linkLoading, setLinkLoading] = useState(false);
     const [banner, setBanner] = useState<Banner>(null);
@@ -160,8 +176,16 @@ export default function ProfileClient() {
     const siteUrl = useMemo(() => {
         if (typeof window === "undefined") return "";
         const env = process.env.NEXT_PUBLIC_SITE_URL?.trim();
-        const base = env ? env.replace(/\/+$/, "") : window.location.origin;
-        return base;
+        if (env) {
+            const normalized = env.replace(/\/+$/, "");
+            try {
+                const u = new URL(normalized);
+                if (u.hostname && u.hostname !== "0.0.0.0") return normalized;
+            } catch {
+                // ignore invalid env values
+            }
+        }
+        return window.location.origin;
     }, []);
 
     const redirectTo = useMemo(() => {
@@ -208,7 +232,7 @@ export default function ProfileClient() {
     });
 
     /**
-     * ✅ FIXED: Don't wipe identities to [] on transient failures.
+     *  FIXED: Don't wipe identities to [] on transient failures.
      * - Returns true only when we successfully refreshed identities.
      * - Uses request id to prevent out-of-order "older" results overriding newer state.
      */
@@ -232,7 +256,7 @@ export default function ProfileClient() {
 
                 return true;
             } catch (e: any) {
-                // ✅ Key change: DO NOT setIdentities([]) here (that causes the "unlink becomes link" bug)
+                //  Key change: DO NOT setIdentities([]) here (that causes the "unlink becomes link" bug)
                 if (e?.message !== "identities_timeout") {
                     console.error("[safeLoadIdentities]", e);
                 }
@@ -329,10 +353,17 @@ export default function ProfileClient() {
     useEffect(() => {
         mountedRef.current = true;
 
-        const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
+        const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
             const next = session?.user ?? null;
-            safeSet(() => setUser(next));
+
+            // Never clear user state on transient auth issues; only on explicit SIGNED_OUT.
+            if (event === "SIGNED_OUT") {
+                safeSet(() => setUser(null));
+                return;
+            }
+
             if (next?.id) {
+                safeSet(() => setUser(next));
                 // best-effort; won't wipe identities if it fails
                 await safeLoadIdentities();
                 restoreOtpCooldown(next.id);
@@ -356,18 +387,38 @@ export default function ProfileClient() {
             if (provider === "google" && success === "1") {
                 safeSet(() => setBanner({ type: "success", text: "Google linked successfully." }));
 
-                const { data } = await supabase.auth.getUser();
-                if (data?.user?.id) {
-                    safeSet(() => setUser(data.user));
+                try {
+                    // Make hasGoogleIdentity flip ASAP.
+                    await safeLoadIdentities({ force: true });
 
-                    try {
-                        await withTimeout(refreshUserAndProfile(data.user.id), 8000, "refresh_timeout");
-                    } catch (e) {
-                        console.error("[OAuth callback refresh timeout]", e);
+                    // Sync profiles.email immediately (fast) so Header/Profile show email without waiting.
+                    const syncRes = await fetch("/api/auth/sync-profile", { method: "POST" });
+                    const syncJson = syncRes.ok ? ((await syncRes.json().catch(() => null)) as any) : null;
+                    if (syncJson?.email) {
+                        safeSet(() =>
+                            setProfileRow((prev) => ({
+                                full_name: prev?.full_name ?? null,
+                                major: prev?.major ?? null,
+                                year: prev?.year ?? null,
+                                avatar_url: prev?.avatar_url ?? null,
+                                email: String(syncJson.email),
+                            }))
+                        );
                     }
-                }
 
-                window.dispatchEvent(new Event("aast-profile-changed"));
+                    const { data } = await supabase.auth.getUser();
+                    if (data?.user?.id) {
+                        safeSet(() => setUser(data.user));
+
+                        try {
+                            await withTimeout(refreshUserAndProfile(data.user.id), 8000, "refresh_timeout");
+                        } catch (e) {
+                            console.error("[OAuth callback refresh timeout]", e);
+                        }
+                    }
+                } finally {
+                    window.dispatchEvent(new Event("aast-profile-changed"));
+                }
             } else if (provider === "google" && err) {
                 const msg =
                     err === "manual_linking_disabled"
@@ -389,7 +440,7 @@ export default function ProfileClient() {
                 window.history.replaceState({}, "", u.toString());
             }
         })();
-    }, [searchParams, supabase, refreshUserAndProfile, safeSet]);
+    }, [searchParams, supabase, refreshUserAndProfile, safeLoadIdentities, safeSet]);
 
     // Initial load with retry + failsafe
     useEffect(() => {
@@ -415,25 +466,52 @@ export default function ProfileClient() {
 
                 try {
                     const {
-                        data: { user: currentUser },
-                        error: userError,
-                    } = await withTimeout(supabase.auth.getUser(), PROFILE_LOAD_TIMEOUT_MS, "getUser_timeout");
+                        data: { session },
+                        error: sessionError,
+                    } = await withTimeout(supabase.auth.getSession(), PROFILE_LOAD_TIMEOUT_MS, "getSession_timeout");
 
                     if (cancelled || !mountedRef.current) {
                         clearTimeout(failsafeTimeout);
                         return;
                     }
 
-                    if (userError) {
+                    if (sessionError) {
                         if (attempt <= MAX_RETRIES) {
                             console.warn(
-                                `[Profile load] User fetch failed, retrying (${attempt}/${MAX_RETRIES + 1})...`,
-                                userError
+                                `[Profile load] Session fetch failed, retrying (${attempt}/${MAX_RETRIES + 1})...`,
+                                sessionError
                             );
                             await new Promise((resolve) => setTimeout(resolve, 500));
                             continue;
                         }
-                        throw userError;
+                        throw sessionError;
+                    }
+
+                    // Seed from session (fast, local). Do not treat network failures as "logged out".
+                    let currentUser = session?.user ?? null;
+                    if (currentUser) {
+                        safeSet(() => setUser(currentUser));
+                        restoreOtpCooldown(currentUser.id);
+                    }
+
+                    // Verify with Auth server (best-effort). If it fails, keep the session user.
+                    try {
+                        const { data: verified } = await withTimeout(supabase.auth.getUser(), 8000, "getUser_timeout");
+                        if (cancelled || !mountedRef.current) {
+                            clearTimeout(failsafeTimeout);
+                            return;
+                        }
+                        if (verified?.user) {
+                            currentUser = verified.user;
+                            safeSet(() => setUser(verified.user));
+                            restoreOtpCooldown(verified.user.id);
+                        }
+                    } catch (e: any) {
+                        if (e?.message === "getUser_timeout") {
+                            console.warn("[Profile load] getUser timeout (keeping session user)");
+                        } else {
+                            console.warn("[Profile load] getUser failed (keeping session user)", e);
+                        }
                     }
 
                     if (!currentUser) {
@@ -441,9 +519,6 @@ export default function ProfileClient() {
                         safeSet(() => setLoading(false));
                         return;
                     }
-
-                    safeSet(() => setUser(currentUser));
-                    restoreOtpCooldown(currentUser.id);
 
                     try {
                         const profileResult = await withTimeout(
@@ -489,18 +564,53 @@ export default function ProfileClient() {
                     // Load stats async (don't block)
                     void (async () => {
                         try {
-                            const [{ count: rsvpC }, { count: verC }] = await Promise.all([
+                            const now = new Date();
+                            const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+                            const [rsvpRes, verRes, monthRes, adminRes, privacyRes] = await Promise.allSettled([
                                 supabase.from("attendees").select("id", { count: "exact", head: true }).eq("user_id", currentUser.id),
                                 supabase
                                     .from("attendees")
                                     .select("id", { count: "exact", head: true })
                                     .eq("user_id", currentUser.id)
                                     .eq("checked_in", true),
+                                supabase
+                                    .from("attendees")
+                                    .select("id", { count: "exact", head: true })
+                                    .eq("user_id", currentUser.id)
+                                    .eq("checked_in", true)
+                                    .gte("checked_in_at", monthStart.toISOString()),
+                                supabase.from("admin_users").select("role").eq("id", currentUser.id).maybeSingle(),
+                                supabase
+                                    .from("user_privacy_settings")
+                                    .select("hide_from_leaderboard, anonymous_polls")
+                                    .eq("user_id", currentUser.id)
+                                    .maybeSingle(),
                             ]);
+
+                            const rsvpC = rsvpRes.status === "fulfilled" ? (rsvpRes.value.count ?? 0) : 0;
+                            const verC = verRes.status === "fulfilled" ? (verRes.value.count ?? 0) : 0;
+                            const monthC = monthRes.status === "fulfilled" ? (monthRes.value.count ?? 0) : 0;
+
+                            const adminOk =
+                                adminRes.status === "fulfilled" && !adminRes.value.error && Boolean(adminRes.value.data);
+
+                            const nextPrivacy =
+                                privacyRes.status === "fulfilled" && !privacyRes.value.error
+                                    ? {
+                                        hide_from_leaderboard: Boolean((privacyRes.value.data as any)?.hide_from_leaderboard),
+                                        anonymous_polls: Boolean((privacyRes.value.data as any)?.anonymous_polls),
+                                    }
+                                    : null;
+
                             if (!cancelled) {
                                 safeSet(() => {
-                                    setRsvpCount(rsvpC || 0);
-                                    setVerifiedCount(verC || 0);
+                                    setRsvpCount(rsvpC);
+                                    setVerifiedCount(verC);
+                                    setVerifiedThisMonth(monthC);
+                                    setBadges(computeBadges({ verifiedTotal: verC, verifiedThisMonth: monthC }));
+                                    setIsAdminUser(adminOk);
+                                    if (nextPrivacy) setPrivacy(nextPrivacy);
                                 });
                             }
                         } catch (e) {
@@ -599,10 +709,14 @@ export default function ProfileClient() {
         });
 
         try {
+            // After linking succeeds, redirect back to Profile with a success marker so we can sync email immediately.
+            const cb = new URL(redirectTo);
+            cb.searchParams.set("next", "/profile?link_provider=google&link_success=1");
+
             const { error } = await supabase.auth.linkIdentity({
                 provider: "google",
                 options: {
-                    redirectTo,
+                    redirectTo: cb.toString(),
                     queryParams: { prompt: "select_account" },
                 } as any,
             });
@@ -618,7 +732,7 @@ export default function ProfileClient() {
     const unlinkGoogle = async () => {
         if (!user) return;
 
-        // ✅ Ensure identities are up-to-date before deciding/linking/unlinking
+        //  Ensure identities are up-to-date before deciding/linking/unlinking
         await safeLoadIdentities({ force: true });
 
         const hasPhone = Boolean(user?.phone);
@@ -645,7 +759,7 @@ export default function ProfileClient() {
         });
 
         try {
-            // ✅ If identities are temporarily unavailable, try one more refresh before failing
+            //  If identities are temporarily unavailable, try one more refresh before failing
             let googleIdentity = identities.find((i) => i.provider === "google");
             if (!googleIdentity) {
                 await safeLoadIdentities({ force: true });
@@ -689,7 +803,7 @@ export default function ProfileClient() {
     };
 
     /**
-     * ✅ FIX: "Google linked" should NOT depend only on identities (network can fail).
+     *  FIX: "Google linked" should NOT depend only on identities (network can fail).
      * - identities can be stale/fail; profileRow.email is your durable truth (you clear it on unlink).
      */
     const googleLinkedFromIdentities = identities.some((i) => i.provider === "google");
@@ -828,10 +942,94 @@ export default function ProfileClient() {
     const initials = getInitials(profileData.full_name, user.email);
     const phoneDisplay = formatPhoneForDisplay(user.phone || "");
 
-    // ✅ Email display logic (fixed): trust profiles.email as the real source
+    //  Email display logic (fixed): trust profiles.email as the real source
     const emailDisplay = hasGoogleIdentity
         ? (profileRow?.email ?? user.email ?? "").trim() || "No email"
         : "No email";
+
+    const updatePrivacy = async (next: Partial<{ hide_from_leaderboard: boolean; anonymous_polls: boolean }>) => {
+        if (!user?.id) return;
+        if (privacyBusy) return;
+        if (isAdminUser) {
+            setBanner({ type: "info", text: "Privacy settings are disabled for admins." });
+            return;
+        }
+
+        const merged = { ...privacy, ...next };
+        setPrivacy(merged);
+        setPrivacyBusy(true);
+        try {
+            const res = await withTimeout(
+                Promise.resolve().then(async () => {
+                    return await supabase
+                        .from("user_privacy_settings")
+                        .upsert(
+                            {
+                                user_id: user.id,
+                                hide_from_leaderboard: merged.hide_from_leaderboard,
+                                anonymous_polls: merged.anonymous_polls,
+                                updated_at: new Date().toISOString(),
+                            },
+                            { onConflict: "user_id" }
+                        );
+                }),
+                5000,
+                "privacy_timeout"
+            );
+            const { error } = res as any;
+            if (error) throw error;
+        } catch (e: any) {
+            console.error("[Privacy] update failed:", e);
+            setBanner({ type: "error", text: "Failed to update privacy settings. Please try again." });
+        } finally {
+            setPrivacyBusy(false);
+        }
+    };
+
+    const SwitchRow = ({
+        label,
+        description,
+        checked,
+        onChange,
+    }: {
+        label: string;
+        description: string;
+        checked: boolean;
+        onChange: (v: boolean) => void;
+    }) => {
+        const disabled = privacyBusy || isAdminUser;
+        return (
+            <div className="grid grid-cols-[1fr_auto] items-center gap-4 p-4">
+                <div className="min-w-0">
+                    <p className="text-sm font-semibold text-foreground flex items-center gap-2">
+                        <EyeOff className="h-4 w-4 text-muted-foreground" />
+                        {label}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">{description}</p>
+                </div>
+                <button
+                    type="button"
+                    role="switch"
+                    aria-checked={checked}
+                    disabled={disabled}
+                    onClick={() => onChange(!checked)}
+                    className={[
+                        "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition",
+                        checked ? "bg-blue-600" : "bg-muted",
+                        disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer",
+                    ].join(" ")}
+                    title={isAdminUser ? "Admins cannot enable privacy mode" : undefined}
+                >
+                    <span
+                        className={[
+                            "inline-block h-5 w-5 transform rounded-full bg-background border border-border shadow transition",
+                            checked ? "translate-x-5" : "translate-x-1",
+                        ].join(" ")}
+                    />
+                </button>
+            </div>
+        );
+    };
 
     return (
         <div className="min-h-screen bg-background">
@@ -1015,6 +1213,123 @@ export default function ProfileClient() {
                     </div>
                 </div>
 
+                <div className="bg-card rounded-2xl shadow-lg border border-border p-6">
+                    <div className="flex items-center justify-between gap-3 mb-4">
+                        <h3 className="text-lg font-bold text-foreground">Badges</h3>
+                        <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <Trophy className="h-4 w-4" />
+                                <span>{verifiedThisMonth} this month</span>
+                            </div>
+
+                            <Dialog>
+                                <DialogTrigger asChild>
+                                    <Button variant="outline" size="sm" className="h-8">
+                                        View all
+                                    </Button>
+                                </DialogTrigger>
+                                <DialogContent className="p-0 sm:max-w-2xl" showCloseButton={false}>
+                                    <div className="flex max-h-[80vh] flex-col">
+                                        <div className="sticky top-0 z-10 border-b border-border bg-background/95 backdrop-blur px-4 py-3 flex items-center justify-between gap-3">
+                                        <DialogClose asChild>
+                                            <Button variant="outline" size="sm" className="h-8">
+                                                <ChevronLeft className="h-4 w-4 mr-2" />
+                                                Back
+                                            </Button>
+                                        </DialogClose>
+                                        <div className="min-w-0 text-center flex-1">
+                                            <DialogTitle className="text-base">All badges</DialogTitle>
+                                        </div>
+                                        <DialogClose asChild>
+                                            <Button variant="ghost" size="sm" className="h-8 px-2">
+                                                <X className="h-4 w-4" />
+                                                <span className="sr-only">Close</span>
+                                            </Button>
+                                        </DialogClose>
+                                        </div>
+
+                                        <div className="px-4 pb-5 pt-4 overflow-y-auto">
+                                            <div className="rounded-2xl border border-border bg-card/40 p-4">
+                                                <DialogDescription className="text-sm">
+                                                    Badges are based on verified attendance (checked-in). Some badges refresh monthly.
+                                                </DialogDescription>
+                                            </div>
+
+                                            <div className="mt-4 grid grid-cols-1 gap-3">
+                                                {[
+                                                    { id: "tier_10", label: "Rising (10+)", req: "Attend 10 events", ok: verifiedCount >= 10, tone: "amber" as const },
+                                                    { id: "tier_20", label: "Committed (20+)", req: "Attend 20 events", ok: verifiedCount >= 20, tone: "green" as const },
+                                                    { id: "tier_40", label: "Dedicated (40+)", req: "Attend 40 events", ok: verifiedCount >= 40, tone: "blue" as const },
+                                                    { id: "tier_70", label: "Elite (70+)", req: "Attend 70 events", ok: verifiedCount >= 70, tone: "purple" as const },
+                                                    { id: "tier_100", label: "Legend (100+)", req: "Attend 100 events", ok: verifiedCount >= 100, tone: "purple" as const },
+                                                    { id: "month_events", label: "3+ events this month", req: "Attend 3+ events this month", ok: verifiedThisMonth >= 3, tone: "blue" as const },
+                                                ].map((b) => (
+                                                    <div
+                                                        key={b.id}
+                                                        className={[
+                                                            "rounded-2xl border border-border bg-card p-4 shadow-sm",
+                                                            b.ok ? "" : "opacity-90",
+                                                        ].join(" ")}
+                                                    >
+                                                        <div className="flex items-start justify-between gap-4">
+                                                            <div className="flex items-start gap-3 min-w-0">
+                                                                <div
+                                                                    className={[
+                                                                        "h-10 w-10 rounded-2xl border flex items-center justify-center shrink-0",
+                                                                        badgeToneClass(b.tone),
+                                                                    ].join(" ")}
+                                                                >
+                                                                    <BadgeIcon id={b.id} className="h-5 w-5" />
+                                                                </div>
+                                                                <div className="min-w-0">
+                                                                    <p className="text-sm font-semibold text-foreground">{b.label}</p>
+                                                                    <p className="text-xs text-muted-foreground mt-1">{b.req}</p>
+                                                                </div>
+                                                            </div>
+                                                            <div
+                                                                className={[
+                                                                    "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold shrink-0",
+                                                                    b.ok
+                                                                        ? "bg-green-50 text-green-700 border-green-200 dark:bg-green-950/30 dark:text-green-300 dark:border-green-800/40"
+                                                                        : "bg-muted text-muted-foreground border-border",
+                                                                ].join(" ")}
+                                                            >
+                                                                {b.ok ? <Check className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+                                                                {b.ok ? "Unlocked" : "Locked"}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </DialogContent>
+                            </Dialog>
+                        </div>
+                    </div>
+
+                    {badges.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                            Attend more events to unlock badges (first tier at 10 verified events).
+                        </p>
+                    ) : (
+                        <div className="flex flex-wrap gap-2">
+                            {badges.map((b) => (
+                                <span
+                                    key={b.id}
+                                    className={[
+                                        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold",
+                                        badgeToneClass(b.tone),
+                                    ].join(" ")}
+                                >
+                                    <BadgeIcon id={b.id} className="h-4 w-4" />
+                                    {b.label}
+                                </span>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
                 <div className="bg-card rounded-2xl shadow-lg border border-border p-6 space-y-4">
                     <h3 className="text-lg font-bold text-foreground">Sign-in methods</h3>
 
@@ -1087,7 +1402,11 @@ export default function ProfileClient() {
                             />
 
                             {!phoneOtpSent ? (
-                                <Button onClick={sendPhoneChangeOtp} disabled={linkLoading || otpBusy || otpCooldown > 0} className="w-full">
+                                <Button
+                                    onClick={sendPhoneChangeOtp}
+                                    disabled={linkLoading || otpBusy || otpCooldown > 0}
+                                    className="w-full bg-[#00386C] hover:bg-[#00509d] text-white"
+                                >
                                     {otpBusy || linkLoading ? "Sending..." : otpCooldown > 0 ? `Wait ${otpCooldown}s` : "Send OTP"}
                                 </Button>
                             ) : (
@@ -1139,6 +1458,34 @@ export default function ProfileClient() {
                     <div className="flex items-center justify-between">
                         <span className="text-sm text-muted-foreground">Theme</span>
                         <DarkModeToggle />
+                    </div>
+
+                    <div className="mt-6 pt-6 border-t border-border">
+                        <p className="text-sm font-semibold text-foreground mb-1">Privacy</p>
+                        <p className="text-xs text-muted-foreground">
+                            These settings affect what non-admin users can see about you.
+                        </p>
+                        {isAdminUser && (
+                            <div className="mt-3 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                                Privacy options are disabled for admins.
+                            </div>
+                        )}
+
+                        <div className="mt-3 rounded-xl border border-border overflow-hidden divide-y divide-border">
+                            <SwitchRow
+                                label="Hide my name from leaderboards"
+                                description="If enabled, your name/avatar won’t appear on public leaderboards to non-admin viewers."
+                                checked={privacy.hide_from_leaderboard}
+                                onChange={(v) => void updatePrivacy({ hide_from_leaderboard: v })}
+                            />
+
+                            <SwitchRow
+                                label="Anonymous polls"
+                                description="If enabled, polls won’t show your identity to non-admin viewers."
+                                checked={privacy.anonymous_polls}
+                                onChange={(v) => void updatePrivacy({ anonymous_polls: v })}
+                            />
+                        </div>
                     </div>
                 </div>
 

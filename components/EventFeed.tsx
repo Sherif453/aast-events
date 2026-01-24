@@ -3,14 +3,14 @@
 import React, { useMemo, useState } from 'react';
 import { EventCard, EventProps } from '@/components/EventCard';
 import { Button } from '@/components/ui/button';
-import { Calendar, History, MapPin, Grid3x3, List, Users } from 'lucide-react';
+import { Calendar, History, MapPin, Grid3x3, List, Users, TrendingUp } from 'lucide-react';
 
 interface EventFeedProps {
-    events: (EventProps & { checked_in_count?: number })[];
+    events: (EventProps & { checked_in_count?: number; rsvps_last_24h?: number })[];
 }
 
 export default function EventFeed({ events }: EventFeedProps) {
-    const [filter, setFilter] = useState<'upcoming' | 'past'>('upcoming');
+    const [filter, setFilter] = useState<'upcoming' | 'past' | 'trending'>('upcoming');
     const [campusFilter, setCampusFilter] = useState<string>('all');
     const [clubFilter, setClubFilter] = useState<string>('all');
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -22,7 +22,9 @@ export default function EventFeed({ events }: EventFeedProps) {
     const timeFiltered = events.filter((event) => {
         const eventDate = new Date(event.start_time);
         if (filter === 'upcoming') return eventDate >= now;
-        return eventDate < now && eventDate >= thirtyDaysAgo;
+        if (filter === 'past') return eventDate < now && eventDate >= thirtyDaysAgo;
+        // trending is for upcoming events only
+        return eventDate >= now;
     });
 
     // Filter by campus
@@ -38,6 +40,27 @@ export default function EventFeed({ events }: EventFeedProps) {
             : clubFilter === 'no_club'
                 ? campusFiltered.filter((e) => !e.club_id)
                 : campusFiltered.filter((e) => e.club_id === clubFilter);
+
+    const displayEvents = useMemo(() => {
+        if (filter !== 'trending') return filtered;
+
+        const score = (e: any) => {
+            const recent = Number(e.rsvps_last_24h ?? 0);
+            const total = Number(e.attendee_count ?? 0);
+            // Growth rate (smoothed): favors fast-growing events, not just raw size.
+            return recent / Math.max(1, total);
+        };
+
+        return filtered
+            .slice()
+            .sort((a: any, b: any) => {
+                const s = score(b) - score(a);
+                if (s !== 0) return s;
+                const r = Number(b.rsvps_last_24h ?? 0) - Number(a.rsvps_last_24h ?? 0);
+                if (r !== 0) return r;
+                return new Date(a.start_time).getTime() - new Date(b.start_time).getTime();
+            });
+    }, [filtered, filter]);
 
     // Get unique campuses
     const campuses = ['all', ...Array.from(new Set(events.map((e) => e.campus)))];
@@ -94,6 +117,16 @@ export default function EventFeed({ events }: EventFeedProps) {
                         >
                             <History className="h-4 w-4 mr-2" />
                             Past
+                        </Button>
+                        <Button
+                            onClick={() => setFilter('trending')}
+                            variant={filter === 'trending' ? 'default' : 'outline'}
+                            size="sm"
+                            className={filter === 'trending' ? 'bg-blue-600 hover:bg-blue-700 text-white' : ''}
+                            title="Based on RSVP growth rate in the last 24 hours"
+                        >
+                            <TrendingUp className="h-4 w-4 mr-2" />
+                            Trending
                         </Button>
                     </div>
 
@@ -159,17 +192,21 @@ export default function EventFeed({ events }: EventFeedProps) {
 
             {/* Results Count */}
             <p className="text-sm text-muted-foreground">
-                Showing {filtered.length} {filter} event{filtered.length !== 1 ? 's' : ''}
+                Showing {displayEvents.length} {filter} event{displayEvents.length !== 1 ? 's' : ''}
                 {campusFilter !== 'all' && ` at ${campusFilter}`}
             </p>
 
             {/* Events Display */}
-            {filtered.length === 0 ? (
+            {displayEvents.length === 0 ? (
                 <div className="text-center py-12 bg-card rounded-xl border border-border">
                     <Calendar className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
                     <p className="text-foreground text-lg font-semibold">No events found</p>
                     <p className="text-muted-foreground text-sm mt-2">
-                        {filter === 'upcoming' ? 'Check back later for new events' : 'No past events to display'}
+                        {filter === 'past'
+                            ? 'No past events to display'
+                            : filter === 'trending'
+                                ? 'No trending events right now'
+                                : 'Check back later for new events'}
                     </p>
                 </div>
             ) : (
@@ -180,7 +217,7 @@ export default function EventFeed({ events }: EventFeedProps) {
                             : 'flex flex-col gap-4 max-w-md mx-auto'
                     }
                 >
-                    {filtered.map((event) => (
+                    {displayEvents.map((event) => (
                         <div key={event.id} className={viewMode === 'list' ? 'w-full' : ''}>
                             <EventCard event={event} />
                         </div>

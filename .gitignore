@@ -39,3 +39,15 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# --- Codex / AI local tooling ---
+.codex/
+**/.codex/
+codex.json
+codex.yaml
+codex.yml
+.codexrc
+.codexrc.*
+# If you use a local config file for Codex:
+codex.toml
+config.toml

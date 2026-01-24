@@ -21,7 +21,7 @@ export default async function EditClubPage({
 
     if (!adminData) redirect('/admin');
 
-    // ✅ Allow super_admin OR club_admin (only their own club)
+    //  Allow super_admin OR club_admin (only their own club)
     if (adminData.role === 'club_admin') {
         if (!adminData.club_id) redirect('/admin');
         if (adminData.club_id !== clubId) redirect('/admin/clubs');

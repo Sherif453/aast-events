@@ -5,24 +5,18 @@ import EventFeed from '@/components/EventFeed';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-export default async function Home() {
+export default function EventsPage() {
   return (
     <div className="min-h-screen bg-background">
-      {/* HERO  always blue */}
-      <div className="bg-[#00386C] text-white py-16">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col gap-4">
-          <h1 className="text-4xl md:text-5xl font-bold">
-            Discover Events at AAST
-          </h1>
-          <p className="text-blue-100 text-lg max-w-2xl">
-            Explore workshops, competitions, and social events happening across campus.
-          </p>
+      <div className="bg-card border-b border-border">
+        <div className="max-w-7xl mx-auto px-4 py-8">
+          <h1 className="text-3xl font-bold text-foreground">All Events</h1>
+          <p className="text-muted-foreground mt-2">Browse events and discover what’s trending.</p>
         </div>
       </div>
 
-      {/* Page body */}
       <div className="max-w-7xl mx-auto px-4 py-10">
-        <Suspense fallback={<EventFeedSkeleton />}>
+        <Suspense fallback={<div className="text-sm text-muted-foreground">Loading…</div>}>
           <EventFeedServer />
         </Suspense>
       </div>
@@ -33,8 +27,6 @@ export default async function Home() {
 async function EventFeedServer() {
   const supabase = await createClient();
 
-  //  Past filter should only show last 30 days  we fetch only events >= (now - 30 days)
-  // Upcoming events are still included because they are >= now anyway.
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
   const { data: events, error } = await supabase
@@ -50,7 +42,7 @@ async function EventFeedServer() {
     )
     .gte('start_time', thirtyDaysAgo.toISOString())
     .order('start_time', { ascending: true })
-    .limit(100);
+    .limit(200);
 
   if (error) {
     console.error('Error fetching events:', error);
@@ -60,17 +52,13 @@ async function EventFeedServer() {
   const eventIds = (events || []).map((e: any) => String(e.id)).filter(Boolean);
   const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-  const { data: recentRsvps, error: recentErr } = eventIds.length
+  const { data: recentRsvps } = eventIds.length
     ? await supabase
         .from('attendees')
         .select('event_id')
         .in('event_id', eventIds)
         .gte('created_at', since24h.toISOString())
-    : { data: [], error: null };
-
-  if (recentErr) {
-    console.error('Error fetching RSVP growth:', recentErr);
-  }
+    : { data: [] as any[] };
 
   const rsvpsLast24hByEventId = new Map<string, number>();
   for (const row of (recentRsvps as any[]) ?? []) {
@@ -79,9 +67,6 @@ async function EventFeedServer() {
     rsvpsLast24hByEventId.set(id, (rsvpsLast24hByEventId.get(id) ?? 0) + 1);
   }
 
-  //  Counts are already maintained in DB via triggers:
-  // attendee_count = RSVP count
-  // checked_in_count = checked-in count
   const eventsWithCounts = (events || []).map((event: any) => ({
     ...event,
     attendee_count: event.attendee_count ?? 0,
@@ -92,22 +77,4 @@ async function EventFeedServer() {
   }));
 
   return <EventFeed events={eventsWithCounts as any} />;
-}
-
-function EventFeedSkeleton() {
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      {[1, 2, 3, 4, 5, 6].map((i) => (
-        <div
-          key={i}
-          className="bg-card rounded-2xl shadow-sm border border-border p-6 animate-pulse"
-        >
-          <div className="h-48 bg-muted rounded-lg mb-4"></div>
-          <div className="h-6 bg-muted rounded mb-2"></div>
-          <div className="h-4 bg-muted rounded w-2/3 mb-2"></div>
-          <div className="h-4 bg-muted rounded w-1/2"></div>
-        </div>
-      ))}
-    </div>
-  );
 }

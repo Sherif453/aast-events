@@ -2,26 +2,22 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
-import { createClient } from '@/lib/supabase/client';
 import { CheckCircle, XCircle, Camera, RefreshCw } from 'lucide-react';
 import { Button } from './ui/button';
 
 interface QRScannerProps {
-    eventId: string;
-    adminId: string;
     onCheckInSuccess: (attendeeId: string, checkedInAt: string) => void;
     disabled?: boolean;
 }
 
 type CameraDevice = { id: string; label?: string };
 
-export default function QRScanner({ eventId, adminId, onCheckInSuccess, disabled }: QRScannerProps) {
-    const supabase = createClient();
-
+export default function QRScanner({ onCheckInSuccess, disabled }: QRScannerProps) {
     const qrRef = useRef<InstanceType<typeof Html5Qrcode> | null>(null);
     const isStartingOrStoppingRef = useRef(false);
     const scanLockRef = useRef(false);
     const messageTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const nextAllowedScanAtRef = useRef<number>(0);
 
     const [scanning, setScanning] = useState(false);
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -67,69 +63,65 @@ export default function QRScanner({ eventId, adminId, onCheckInSuccess, disabled
         }
     };
 
-    const handleScan = async (qrCode: string) => {
+    const handleScan = async (token: string) => {
+        const now = Date.now();
+        if (now < nextAllowedScanAtRef.current) {
+            setMessageWithAutoClear({ type: 'error', text: 'Please wait a moment…' }, 1200);
+            return;
+        }
+        nextAllowedScanAtRef.current = now + 900;
+
         if (scanLockRef.current) return;
         scanLockRef.current = true;
 
         try {
-            setDebugInfo(`Scanning QR: ${qrCode.substring(0, 20)}...`);
+            setDebugInfo(`Scanning token: ${token.substring(0, 24)}...`);
 
-            const { data: allMatches, error: searchError } = await supabase
-                .from('attendees')
-                .select('id, event_id, user_id, checked_in, qr_code')
-                .eq('qr_code', qrCode);
+            const res = await fetch('/api/checkin/qr', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token }),
+            });
 
-            if (searchError) {
-                setMessageWithAutoClear({ type: 'error', text: `Database error: ${searchError.message}` }, 5000);
+            const json = await res.json().catch(() => ({}));
+
+            if (res.status === 401) {
+                setMessageWithAutoClear({ type: 'error', text: 'Please log in again.' }, 4000);
                 return;
             }
 
-            if (!allMatches || allMatches.length === 0) {
-                setMessageWithAutoClear({ type: 'error', text: 'QR code not found in database' }, 5000);
+            if (res.status === 403) {
+                setMessageWithAutoClear({ type: 'error', text: 'Not allowed to check in for this event.' }, 5000);
                 return;
             }
 
-            const attendee = allMatches.find((a) => a.event_id.toString() === eventId.toString());
-
-            if (!attendee) {
-                setMessageWithAutoClear(
-                    {
-                        type: 'error',
-                        text: `This QR code is for event ID ${allMatches[0].event_id}, not event ${eventId}`,
-                    },
-                    5000
-                );
-                setDebugInfo(`Wrong event. Expected: ${eventId}, Got: ${allMatches[0].event_id}`);
+            if (!res.ok && typeof json?.error === 'string') {
+                const msg =
+                    json.error === 'token_expired'
+                        ? 'Ticket expired — ask the attendee to refresh their QR.'
+                        : json.error === 'invalid_token' || json.error === 'invalid_signature'
+                            ? 'Invalid ticket — ask the attendee to reopen their QR.'
+                            : json.error;
+                setMessageWithAutoClear({ type: 'error', text: msg }, 5000);
                 return;
             }
 
-            // ✅ SAFE: public profile only
-            const { data: profile } = await supabase
-                .from('profiles_public')
-                .select('full_name')
-                .eq('id', attendee.user_id)
-                .maybeSingle();
-
-            const attendeeName = profile?.full_name || 'Unknown User';
-
-            if (attendee.checked_in) {
-                setMessageWithAutoClear({ type: 'error', text: `${attendeeName} already checked in!` }, 3000);
+            if (json?.ok === false && json?.error === 'already_checked_in') {
+                setMessageWithAutoClear({ type: 'error', text: `${json?.attendeeName || 'User'} already checked in!` }, 3000);
                 return;
             }
 
-            const checkedInAt = new Date().toISOString();
+            if (json?.ok !== true) {
+                setMessageWithAutoClear({ type: 'error', text: 'Check-in failed. Please try again.' }, 5000);
+                return;
+            }
 
-            const { error: checkInError } = await supabase
-                .from('attendees')
-                .update({
-                    checked_in: true,
-                    checked_in_at: checkedInAt,
-                    checked_in_by: adminId,
-                })
-                .eq('id', attendee.id);
+            const attendeeId = String(json?.attendeeId || '');
+            const checkedInAt = String(json?.checkedInAt || '');
+            const attendeeName = String(json?.attendeeName || 'Unknown User');
 
-            if (checkInError) {
-                setMessageWithAutoClear({ type: 'error', text: `Check-in failed: ${checkInError.message}` }, 5000);
+            if (!attendeeId || !checkedInAt) {
+                setMessageWithAutoClear({ type: 'error', text: 'Check-in failed (invalid response).' }, 5000);
                 return;
             }
 
@@ -138,7 +130,7 @@ export default function QRScanner({ eventId, adminId, onCheckInSuccess, disabled
             clearMessageTimeout();
             messageTimeoutRef.current = setTimeout(() => {
                 setMessage(null);
-                onCheckInSuccess(attendee.id, checkedInAt);
+                onCheckInSuccess(attendeeId, checkedInAt);
             }, 800);
         } catch (error: unknown) {
             console.error('Scan error:', error);

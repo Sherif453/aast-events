@@ -94,7 +94,7 @@ export default function ClubForm({ userId }: { userId: string }) {
         setIsSubmitting(true);
 
         try {
-            // ✅ Hardening: never trust prop for created_by
+            //  Hardening: never trust prop for created_by
             const { data: authData, error: authErr } = await supabase.auth.getUser();
             if (authErr || !authData?.user?.id) {
                 alert('You must be logged in to create a club.');

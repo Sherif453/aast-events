@@ -17,8 +17,8 @@ interface Attendee {
     checked_in_at: string | null;
     profiles: {
         full_name: string;
-        email: string | null; // ✅ allow null
-        avatar_url: string | null; // ✅ allow null
+        email: string | null; //  allow null
+        avatar_url: string | null; //  allow null
     };
 }
 
@@ -43,7 +43,7 @@ export default function CheckInInterface({
     const supabase = createClient();
     const router = useRouter();
 
-    // ✅ Check-in lock: block check-in actions 24 hours after start time
+    //  Check-in lock: block check-in actions 24 hours after start time
     const isCheckInLocked = useMemo(() => {
         const start = new Date(eventStartTime).getTime();
         const lockAt = start + 24 * 60 * 60 * 1000;
@@ -134,8 +134,6 @@ export default function CheckInInterface({
                 <div className="bg-card rounded-xl shadow-sm border border-border p-6 mb-4">
                     <h2 className="text-lg font-bold text-foreground mb-4">QR Code Scanner</h2>
                     <QRScanner
-                        eventId={eventId}
-                        adminId={adminId}
                         onCheckInSuccess={(attendeeId, checkedInAt) => {
                             setAttendees((prev) =>
                                 prev.map((a) =>

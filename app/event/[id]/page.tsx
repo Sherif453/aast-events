@@ -19,14 +19,14 @@ import { AttendeesList } from "@/components/AttendeesList";
 import EventReminderButton from "@/components/EventReminderButton";
 
 export const revalidate = 0;
-// ✅ Ensure the page re-renders properly after auth changes (prevents “needs reload” issues)
+//  Ensure the page re-renders properly after auth changes (prevents “needs reload” issues)
 export const dynamic = "force-dynamic";
 
 const getEventStatus = (startTime: string) => {
     const now = new Date();
     const start = new Date(startTime);
 
-    const concludedAt = new Date(start.getTime() + 4 * 60 * 60 * 1000); // ✅ concluded after 4 hours
+    const concludedAt = new Date(start.getTime() + 4 * 60 * 60 * 1000); //  concluded after 4 hours
 
     if (now >= concludedAt) {
         return { text: "Event Concluded", className: "bg-gray-800 text-white border-2 border-gray-600" };
@@ -53,36 +53,36 @@ export default async function EventDetailsPage({
     const { id: eventId } = await params;
     const supabase = await createClient();
 
-    // ✅ FIX: use getSession() and don't console.error for “logged out”
+    //  FIX: use getUser() for verified auth data (avoid session-user warning)
     let user: any = null;
     try {
-        const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
+        const { data: userData, error: userErr } = await supabase.auth.getUser();
 
         // Only warn if it's NOT the common “missing session” case.
-        if (sessionErr && (sessionErr as any)?.name !== "AuthSessionMissingError") {
-            console.warn("[EventDetails] getSession error:", {
-                message: (sessionErr as any).message,
-                code: (sessionErr as any).code,
+        if (userErr && (userErr as any)?.name !== "AuthSessionMissingError") {
+            console.warn("[EventDetails] getUser error:", {
+                message: (userErr as any).message,
+                code: (userErr as any).code,
             });
         }
 
-        user = sessionData?.session?.user ?? null;
+        user = userData?.user ?? null;
     } catch (e: any) {
         // Keep it non-fatal and non-overlay-ish
-        console.warn("[EventDetails] getSession threw:", { message: e?.message });
+        console.warn("[EventDetails] getUser threw:", { message: e?.message });
         user = null;
     }
 
     const userId = user?.id ?? null;
 
-    // ✅ SAFE: Wrapped event fetch with detailed error handling
+    //  SAFE: Wrapped event fetch with detailed error handling
     const { data: event, error } = await supabase
         .from("events")
         .select("*")
         .eq("id", eventId)
         .single();
 
-    // ✅ SAFE: Distinguish between "not found" and "network error"
+    //  SAFE: Distinguish between "not found" and "network error"
     if (error) {
         console.error("Event fetch error:", error);
 
@@ -140,7 +140,7 @@ export default async function EventDetailsPage({
         );
     }
 
-    // ✅ SAFE: Fetch admin role + club_id (if logged in)
+    //  SAFE: Fetch admin role + club_id (if logged in)
     const { data: adminRow } = userId
         ? await supabase
             .from("admin_users")
@@ -154,7 +154,7 @@ export default async function EventDetailsPage({
 
     const isAdmin = !!adminRow;
 
-    // ✅ UI guard for showing check-in link (scoped)
+    //  UI guard for showing check-in link (scoped)
     const canSeeCheckin =
         adminRole === "super_admin" ||
         ((adminRole === "club_admin" || adminRole === "event_volunteer") &&
@@ -172,7 +172,7 @@ export default async function EventDetailsPage({
     if (rawAttendees && rawAttendees.length > 0) {
         const userIds = rawAttendees.map((a) => a.user_id);
 
-        // ✅ FIX: use PUBLIC profiles here so normal users don't break on RLS
+        //  FIX: use PUBLIC profiles here so normal users don't break on RLS
         const { data: profilesData } = await supabase
             .from("profiles_public")
             .select("id, full_name, avatar_url")
@@ -204,14 +204,13 @@ export default async function EventDetailsPage({
     const { data: myAttendance } = userId
         ? await supabase
             .from("attendees")
-            .select("id, qr_code")
+            .select("id")
             .eq("event_id", eventId)
             .eq("user_id", userId)
             .maybeSingle()
         : { data: null };
 
     const isAttending = !!myAttendance;
-    const userQRCode = myAttendance?.qr_code || null;
 
     // Get user profile for RSVP button (self-only is fine)
     const { data: userProfile } = userId
@@ -233,6 +232,7 @@ export default async function EventDetailsPage({
     });
 
     const status = getEventStatus(currentEvent.start_time);
+    const isConcluded = status.text === "Event Concluded";
     const heroSrc = currentEvent.image_url || "";
 
     return (
@@ -270,7 +270,14 @@ export default async function EventDetailsPage({
                             <div className="flex items-center gap-4 flex-wrap mb-4">
                                 <h1 className="text-3xl font-extrabold text-foreground leading-tight">{currentEvent.title}</h1>
 
-                                <EventReminderButton eventId={event.id} eventTitle={event.title} startTime={event.start_time} />
+                                {!isConcluded && (
+                                    <EventReminderButton
+                                        eventId={event.id}
+                                        eventTitle={event.title}
+                                        startTime={event.start_time}
+                                        initialUserId={userId}
+                                    />
+                                )}
                             </div>
 
                             <p className="text-sm font-bold text-yellow-500 uppercase tracking-wide mb-6">
@@ -295,13 +302,20 @@ export default async function EventDetailsPage({
                             </div>
 
                             <div className="bg-card rounded-2xl p-5 border border-border mb-8 shadow-sm">
+                                <h2 className="text-xl font-bold text-foreground mb-3">Description</h2>
+                                <p className="text-muted-foreground whitespace-pre-wrap leading-relaxed">
+                                    {currentEvent.description || "No description provided."}
+                                </p>
+                            </div>
+
+                            <div className="bg-card rounded-2xl p-5 border border-border mb-8 shadow-sm">
                                 <div className="flex items-center justify-between mb-4 flex-wrap gap-4">
                                     <div>
                                         <span className="text-lg font-bold text-blue-600 dark:text-blue-400">{attendeeCount ?? 0} Going</span>
                                         <span className="block text-xs text-muted-foreground">Join your classmates!</span>
                                     </div>
 
-                                    <AvatarStack attendees={attendees} totalCount={attendeeCount ?? 0} />
+                                    <AvatarStack attendees={attendees} totalCount={attendeeCount ?? 0} maxVisible={5} />
                                 </div>
 
                                 <RSVPButton
@@ -310,7 +324,6 @@ export default async function EventDetailsPage({
                                     userId={userId}
                                     userName={userProfile?.full_name || user?.user_metadata?.full_name || null}
                                     initialAttendanceStatus={isAttending}
-                                    initialQRCode={userQRCode}
                                     startTime={currentEvent.start_time}
                                 />
                             </div>
@@ -321,16 +334,9 @@ export default async function EventDetailsPage({
                                         <Users className="h-5 w-5 text-blue-600 dark:text-blue-400" />
                                         <h2 className="text-lg font-bold text-foreground">Who&apos;s Going ({attendeeCount})</h2>
                                     </div>
-                                    <AttendeesList attendees={attendees} />
+                                    <AttendeesList attendees={attendees} scrollAfter={10} />
                                 </div>
                             )}
-
-                            <div className="bg-card rounded-2xl p-5 border border-border shadow-sm">
-                                <h2 className="text-xl font-bold text-foreground mb-3">About</h2>
-                                <p className="text-muted-foreground whitespace-pre-wrap leading-relaxed">
-                                    {currentEvent.description || "No description provided."}
-                                </p>
-                            </div>
                         </div>
                     </div>
                 </div>

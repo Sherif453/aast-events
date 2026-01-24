@@ -28,12 +28,12 @@ export async function GET(request: Request) {
     const role = adminData.role as AdminRole;
     const adminClubId = adminData.club_id ?? null;
 
-    // ✅ Only these can export
+    //  Only these can export
     if (!['super_admin', 'club_admin', 'event_volunteer'].includes(role)) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    // ✅ If eventId provided, check access to that event
+    //  If eventId provided, check access to that event
     let allowedEventClubId: string | null = null;
     if (eventId) {
         const { data: eventRow, error: eventErr } = await supabase
@@ -54,7 +54,7 @@ export async function GET(request: Request) {
     }
 
     try {
-        // ✅ base attendees query
+        //  base attendees query
         let query = supabase
             .from('attendees')
             .select('user_id, checked_in, checked_in_at, created_at, event_id')
@@ -68,7 +68,7 @@ export async function GET(request: Request) {
             query = query.eq('checked_in', true);
         }
 
-        // ✅ If no eventId and not super_admin: restrict to their club by filtering events in that club
+        //  If no eventId and not super_admin: restrict to their club by filtering events in that club
         if (!eventId && role !== 'super_admin') {
             if (!adminClubId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
@@ -99,7 +99,7 @@ export async function GET(request: Request) {
 
         const userIds = Array.from(new Set(attendees?.map((a) => a.user_id) || []));
 
-        // ✅ service-role fetch private profiles
+        //  service-role fetch private profiles
         const admin = createAdminClient();
 
         const { data: profiles, error: profilesErr } = userIds.length

@@ -10,11 +10,13 @@ export interface AttendeeItem {
 interface AvatarStackProps {
     attendees: AttendeeItem[];
     totalCount: number;
+    maxVisible?: number;
 }
 
-export function AvatarStack({ attendees, totalCount }: AvatarStackProps) {
-    const displayAttendees = attendees.slice(0, 4);
-    const remaining = Math.max(0, totalCount - 4);
+export function AvatarStack({ attendees, totalCount, maxVisible = 4 }: AvatarStackProps) {
+    const safeMax = Math.max(1, maxVisible);
+    const displayAttendees = attendees.slice(0, safeMax);
+    const remaining = Math.max(0, totalCount - safeMax);
 
     const getInitials = (name: string | null) => {
         if (!name) return "?";

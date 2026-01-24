@@ -44,7 +44,7 @@ export default async function AdminUsersPage() {
 
     if (myRole === 'club_admin' && !myClubId) redirect('/admin');
 
-    // ✅ Current admins/volunteers list (scoped for club_admin)
+    //  Current admins/volunteers list (scoped for club_admin)
     let adminsQuery = supabase
         .from('admin_users')
         .select('id, role, assigned_at, club_id, clubs(name)')
@@ -63,7 +63,7 @@ export default async function AdminUsersPage() {
     const adminRows = (rawAdmins as AdminRow[] | null) ?? [];
     const adminIds = adminRows.map((a) => a.id);
 
-    // ✅ Fetch private profile info for listed admins/volunteers (emails must show for club_admin too)
+    //  Fetch private profile info for listed admins/volunteers (emails must show for club_admin too)
     const { data: adminProfiles, error: adminProfilesErr } = adminIds.length
         ? await supabase.from('profiles').select('id, full_name, email').in('id', adminIds)
         : { data: [], error: null };
@@ -88,7 +88,7 @@ export default async function AdminUsersPage() {
         };
     });
 
-    // ✅ All users list for dropdown (ALWAYS pull from profiles so emails show for club_admin)
+    //  All users list for dropdown (ALWAYS pull from profiles so emails show for club_admin)
     const { data: allPrivate, error: allPrivateErr } = await supabase
         .from('profiles')
         .select('id, full_name, email')
@@ -105,7 +105,7 @@ export default async function AdminUsersPage() {
             email: u.email || null,
         })) ?? [];
 
-    // ✅ Clubs list (super_admin sees all, club_admin sees only their club)
+    //  Clubs list (super_admin sees all, club_admin sees only their club)
     let clubsQuery = supabase.from('clubs').select('id, name').order('name');
     if (myRole === 'club_admin' && myClubId) clubsQuery = clubsQuery.eq('id', myClubId);
 

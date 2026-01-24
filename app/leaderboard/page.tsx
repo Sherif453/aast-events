@@ -2,6 +2,8 @@ import { createClient } from '@/lib/supabase/server';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Trophy, Medal, Award, ChevronLeft } from 'lucide-react';
 import Link from 'next/link';
+import { computeAttendanceTierBadge, badgeToneClass } from '@/lib/badges';
+import { BadgeIcon } from '@/lib/badge-icons';
 
 export const revalidate = 60;
 
@@ -11,12 +13,13 @@ interface LeaderboardUser {
     avatar_url: string;
     email?: string; // only for super_admin
     event_count: number;
+    month_count: number;
 }
 
 export default async function LeaderboardPage() {
     const supabase = await createClient();
 
-    // ✅ check if current viewer is super_admin (needed for showing emails)
+    //  check if current viewer is super_admin (needed for showing emails)
     const {
         data: { user },
     } = await supabase.auth.getUser();
@@ -32,25 +35,33 @@ export default async function LeaderboardPage() {
         isSuperAdminViewer = adminRow?.role === 'super_admin';
     }
 
-    // ✅ 1) Get checked-in attendee rows (NO join)
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    //  1) Get checked-in attendee rows (NO join)
     const { data: checkedInRows, error: checkedInErr } = await supabase
         .from('attendees')
-        .select('user_id')
+        .select('user_id, checked_in_at')
         .eq('checked_in', true);
 
     if (checkedInErr) {
         console.error('Leaderboard attendees fetch error:', checkedInErr);
     }
 
-    // Count per user
+    // Count per user (total + this month)
     const userEventCounts = new Map<string, number>();
+    const userMonthCounts = new Map<string, number>();
     checkedInRows?.forEach((r) => {
         userEventCounts.set(r.user_id, (userEventCounts.get(r.user_id) ?? 0) + 1);
+        const ts = (r as any).checked_in_at ? new Date((r as any).checked_in_at) : null;
+        if (ts && ts >= monthStart) {
+            userMonthCounts.set(r.user_id, (userMonthCounts.get(r.user_id) ?? 0) + 1);
+        }
     });
 
     const userIds = Array.from(userEventCounts.keys());
 
-    // ✅ 2) Fetch profiles:
+    //  2) Fetch profiles:
     // - normal users: from profiles_public (safe)
     // - super_admin: from profiles (can see email via policy)
     const selectCols = isSuperAdminViewer
@@ -70,15 +81,33 @@ export default async function LeaderboardPage() {
     const profileMap = new Map<string, any>();
     (profilesData ?? []).forEach((p: any) => profileMap.set(p.id, p));
 
+    // Privacy: hide names/avatars from public leaderboards (non-super-admin viewers only).
+    const { data: privacyRows, error: privacyErr } = userIds.length
+        ? await supabase
+            .from('user_privacy_settings')
+            .select('user_id, hide_from_leaderboard')
+            .in('user_id', userIds)
+        : { data: [], error: null };
+
+    if (privacyErr) {
+        console.error('Leaderboard privacy fetch error:', privacyErr);
+    }
+
+    const hiddenFromLeaderboard = new Set<string>(
+        (privacyRows ?? []).filter((r: any) => r.hide_from_leaderboard).map((r: any) => String(r.user_id))
+    );
+
     const leaderboard: LeaderboardUser[] = userIds
         .map((user_id) => {
             const profile = profileMap.get(user_id);
+            const hidePublic = !isSuperAdminViewer && hiddenFromLeaderboard.has(user_id);
             return {
                 user_id,
-                full_name: profile?.full_name || 'Anonymous',
-                avatar_url: profile?.avatar_url || '',
+                full_name: hidePublic ? 'Anonymous' : profile?.full_name || 'Anonymous',
+                avatar_url: hidePublic ? '' : profile?.avatar_url || '',
                 email: isSuperAdminViewer ? profile?.email || undefined : undefined,
                 event_count: userEventCounts.get(user_id) ?? 0,
+                month_count: userMonthCounts.get(user_id) ?? 0,
             };
         })
         .sort((a, b) => b.event_count - a.event_count)
@@ -147,7 +176,26 @@ export default async function LeaderboardPage() {
                                     </Avatar>
 
                                     <div className="flex-1">
-                                        <p className="font-semibold text-foreground">{u.full_name}</p>
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <p className="font-semibold text-foreground truncate">{u.full_name}</p>
+                                            {(() => {
+                                                // Leaderboard badges: only attendance tiers (start at 10 verified events).
+                                                const top = computeAttendanceTierBadge(u.event_count);
+                                                if (!top) return null;
+                                                return (
+                                                    <span
+                                                        className={[
+                                                            "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold shrink-0",
+                                                            badgeToneClass(top.tone),
+                                                        ].join(" ")}
+                                                        title={top.description || top.label}
+                                                    >
+                                                        <BadgeIcon id={top.id} className="h-3.5 w-3.5" />
+                                                        <span className="max-w-[140px] truncate">{top.label}</span>
+                                                    </span>
+                                                );
+                                            })()}
+                                        </div>
                                         {isSuperAdminViewer && u.email && (
                                             <p className="text-sm text-muted-foreground">{u.email}</p>
                                         )}

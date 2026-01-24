@@ -13,8 +13,7 @@ interface RSVPButtonProps {
     userId: string | null;
     userName: string | null;
     initialAttendanceStatus: boolean;
-    initialQRCode?: string | null;
-    startTime?: string; // ✅ used to lock RSVP after 24h
+    startTime?: string; //  used to lock RSVP after 24h
 }
 
 export default function RSVPButton({
@@ -22,18 +21,16 @@ export default function RSVPButton({
     eventTitle,
     userName,
     initialAttendanceStatus,
-    initialQRCode,
     startTime,
 }: RSVPButtonProps) {
     const [isAttending, setIsAttending] = useState(initialAttendanceStatus);
-    const [qrCode, setQrCode] = useState(initialQRCode);
     const [showQR, setShowQR] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
 
     const router = useRouter();
     const supabase = useMemo(() => createClient(), []);
 
-    // ✅ RSVP lock: block actions 24 hours after start time
+    //  RSVP lock: block actions 24 hours after start time
     const isRSVPLocked = useMemo(() => {
         if (!startTime) return false;
         const start = new Date(startTime).getTime();
@@ -41,11 +38,11 @@ export default function RSVPButton({
         return Date.now() >= lockAt;
     }, [startTime]);
 
-    // ✅ Refetch RSVP status for current session user
+    //  Refetch RSVP status for current session user
     const refetchMyAttendance = useCallback(async (uid: string) => {
         const { data, error } = await supabase
             .from("attendees")
-            .select("id, qr_code")
+            .select("id")
             .eq("event_id", eventId)
             .eq("user_id", uid)
             .maybeSingle();
@@ -54,10 +51,9 @@ export default function RSVPButton({
 
         const attendingNow = !!data;
         setIsAttending(attendingNow);
-        setQrCode(data?.qr_code ?? null);
     }, [eventId, supabase]);
 
-    // ✅ Fix: after login/logout, update state + refresh + refetch RSVP immediately
+    //  Fix: after login/logout, update state + refresh + refetch RSVP immediately
     useEffect(() => {
         let isMounted = true;
 
@@ -71,7 +67,6 @@ export default function RSVPButton({
             } else {
                 // logged out
                 setIsAttending(false);
-                setQrCode(null);
             }
         })();
 
@@ -82,7 +77,6 @@ export default function RSVPButton({
                 await refetchMyAttendance(uid);
             } else {
                 setIsAttending(false);
-                setQrCode(null);
             }
 
             // Keep server parts in sync (attendeeCount, stacks, etc.)
@@ -104,7 +98,7 @@ export default function RSVPButton({
         setIsLoading(true);
 
         try {
-            // ✅ Logged out => go to login page (NOT direct Google OAuth)
+            //  Logged out => go to login page (NOT direct Google OAuth)
             const { data: sessionData } = await supabase.auth.getSession();
             const uid = sessionData?.session?.user?.id ?? null;
 
@@ -124,7 +118,6 @@ export default function RSVPButton({
                 if (error) throw error;
 
                 setIsAttending(false);
-                setQrCode(null);
             } else {
                 const { data, error } = await supabase
                     .from("attendees")
@@ -132,16 +125,16 @@ export default function RSVPButton({
                         event_id: eventId,
                         user_id: uid,
                     })
-                    .select("qr_code")
+                    .select("id")
                     .single();
 
                 if (error) throw error;
 
                 setIsAttending(true);
-                setQrCode(data?.qr_code ?? null);
+                void data;
             }
 
-            // ✅ keep rest of page (counts, lists) in sync
+            //  keep rest of page (counts, lists) in sync
             router.refresh();
         } catch (error: any) {
             console.error("RSVP Error:", error);
@@ -182,7 +175,7 @@ export default function RSVPButton({
                     )}
                 </Button>
 
-                {isAttending && qrCode && (
+                {isAttending && (
                     <Button
                         onClick={() => setShowQR(true)}
                         variant="outline"
@@ -194,9 +187,9 @@ export default function RSVPButton({
                 )}
             </div>
 
-            {showQR && qrCode && (
+            {showQR && (
                 <QRCodeDisplay
-                    qrCode={qrCode}
+                    eventId={eventId}
                     eventTitle={eventTitle}
                     userName={userName || "Student"}
                     onClose={() => setShowQR(false)}

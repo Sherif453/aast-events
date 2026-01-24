@@ -94,7 +94,7 @@ export default function PostNewsForm({ clubId, userId }: PostNewsFormProps) {
         return url ? url : null;
     };
 
-    // ✅ Non-blocking fanout (DB-side) so we don't violate notifications RLS from the client
+    //  Non-blocking fanout (DB-side) so we don't violate notifications RLS from the client
     const notifyFollowersNonBlocking = async (clubNewsId: string) => {
         try {
             // If you already created an RPC for this, we’ll use it.
@@ -139,7 +139,7 @@ export default function PostNewsForm({ clubId, userId }: PostNewsFormProps) {
 
             if (error) throw error;
 
-            // ✅ Don’t do client-side follower reads / notifications inserts (RLS will block)
+            //  Don’t do client-side follower reads / notifications inserts (RLS will block)
             if (newsData?.id) {
                 await notifyFollowersNonBlocking(newsData.id);
             }
