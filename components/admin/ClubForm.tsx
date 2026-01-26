@@ -27,6 +27,19 @@ export default function ClubForm({ userId }: { userId: string }) {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
 
+  const normalizeImageUrl = (raw: string): string | null => {
+    const v = raw.trim();
+    if (!v) return null;
+    if (v.startsWith('/') && !v.startsWith('//')) return v;
+    try {
+      const u = new URL(v);
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+      return u.toString();
+    } catch {
+      return null;
+    }
+  };
+
   const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -107,7 +120,12 @@ export default function ClubForm({ userId }: { userId: string }) {
           ? crypto.randomUUID()
           : `${Date.now()}-${Math.random().toString(16).slice(2)}-${Math.random().toString(16).slice(2)}`;
 
-      const typedUrl = (formData.image_url || '').trim() || null;
+      const typedUrlRaw = (formData.image_url || '').trim() || null;
+      const typedUrl = typedUrlRaw ? normalizeImageUrl(typedUrlRaw) : null;
+      if (typedUrlRaw && !typedUrl) {
+        alert('Invalid logo URL (must be http(s) or a relative /path).');
+        return;
+      }
 
       // If logo file exists, upload FIRST so insert includes logo URL
       let finalLogoUrl: string | null = typedUrl;
@@ -216,7 +234,7 @@ export default function ClubForm({ userId }: { userId: string }) {
                 onChange={(e) => {
                   const v = e.target.value;
                   setFormData((p) => ({ ...p, image_url: v }));
-                  if (v) setLogoPreview(v);
+                  setLogoPreview(normalizeImageUrl(v));
                 }}
                 placeholder="Paste logo URL"
                 className="mt-2"

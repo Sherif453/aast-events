@@ -183,8 +183,17 @@ export default function EventForm({ mode, clubs, userId, role, adminClubId, init
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.type.startsWith('image/')) {
-      alert('Please select an image file');
+    const allowedMime = new Set(['image/png', 'image/jpeg', 'image/webp']);
+    const mime = String(file.type || '').toLowerCase();
+    const ext = String(file.name.split('.').pop() || '').toLowerCase();
+
+    const isAllowed =
+      allowedMime.has(mime) ||
+      (mime === '' && (ext === 'png' || ext === 'jpg' || ext === 'jpeg' || ext === 'webp'));
+
+    // Restrict to safe raster formats (avoid SVG unless you sanitize it end-to-end).
+    if (!isAllowed) {
+      alert('Please select a PNG, JPG, or WebP image');
       return;
     }
 
@@ -225,8 +234,11 @@ export default function EventForm({ mode, clubs, userId, role, adminClubId, init
     async (file: File, opts?: { silent?: boolean }): Promise<string> => {
       const silent = opts?.silent ?? false;
 
-      const fileExt = file.name.split('.').pop() || 'jpg';
-      const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`;
+      const mime = String(file.type || '').toLowerCase();
+      const ext = mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg';
+      const contentType = mime || (ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg');
+
+      const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
       const filePath = `events/${fileName}`;
 
       if (!silent && mountedRef.current) setUploadProgress(30);
@@ -234,6 +246,7 @@ export default function EventForm({ mode, clubs, userId, role, adminClubId, init
       const { error: uploadError } = await supabase.storage.from('event-images').upload(filePath, file, {
         cacheControl: '3600',
         upsert: false,
+        contentType,
       });
 
       if (uploadError) throw uploadError;
@@ -373,7 +386,22 @@ export default function EventForm({ mode, clubs, userId, role, adminClubId, init
       const startTimeIso = formData.start_time ? localDateTimeToIso(formData.start_time) : null;
       if (!startTimeIso) throw new Error('Invalid start time');
 
-      const typedImageUrl = (formData.image_url || '').trim() || null;
+      const normalizeImageUrl = (raw: string): string | null => {
+        const v = raw.trim();
+        if (!v) return null;
+        if (v.startsWith('/') && !v.startsWith('//')) return v;
+        try {
+          const u = new URL(v);
+          if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+          return u.toString();
+        } catch {
+          return null;
+        }
+      };
+
+      const typedImageUrlRaw = (formData.image_url || '').trim() || null;
+      const typedImageUrl = typedImageUrlRaw ? normalizeImageUrl(typedImageUrlRaw) : null;
+      if (typedImageUrlRaw && !typedImageUrl) throw new Error('Invalid image URL');
       const hasFile = Boolean(imageFile);
 
       // Start upload immediately if file exists
@@ -542,9 +570,9 @@ export default function EventForm({ mode, clubs, userId, role, adminClubId, init
                 </Button>
               </div>
             ) : (
-              <div className="border-2 border-dashed border-border rounded-lg p-8 text-center hover:border-primary/50 transition cursor-pointer">
-                <input type="file" id="image-upload" accept="image/*" onChange={handleImageChange} className="hidden" />
-                <label htmlFor="image-upload" className="cursor-pointer flex flex-col items-center">
+	              <div className="border-2 border-dashed border-border rounded-lg p-8 text-center hover:border-primary/50 transition cursor-pointer">
+	                <input type="file" id="image-upload" accept="image/png,image/jpeg,image/webp" onChange={handleImageChange} className="hidden" />
+	                <label htmlFor="image-upload" className="cursor-pointer flex flex-col items-center">
                   <ImageIcon className="h-12 w-12 text-muted-foreground mb-3" />
                   <span className="text-sm font-medium text-foreground">Click to upload image</span>
                   <span className="text-xs text-muted-foreground mt-1">PNG, JPG, WebP up to 5MB</span>
@@ -561,16 +589,29 @@ export default function EventForm({ mode, clubs, userId, role, adminClubId, init
             {!imagePreview && (
               <div className="text-center">
                 <span className="text-sm text-muted-foreground">OR</span>
-                <Input
-                  type="url"
-                  value={formData.image_url}
-                  onChange={(e) => {
-                    setFormData({ ...formData, image_url: e.target.value });
-                    if (e.target.value) setImagePreview(e.target.value);
-                  }}
-                  placeholder="Paste image URL"
-                  className="mt-2"
-                />
+	                <Input
+	                  type="url"
+	                  value={formData.image_url}
+	                  onChange={(e) => {
+	                    const next = e.target.value;
+	                    setFormData({ ...formData, image_url: next });
+	                    const normalized = (() => {
+	                      const v = next.trim();
+	                      if (!v) return null;
+	                      if (v.startsWith('/') && !v.startsWith('//')) return v;
+	                      try {
+	                        const u = new URL(v);
+	                        if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+	                        return u.toString();
+	                      } catch {
+	                        return null;
+	                      }
+	                    })();
+	                    setImagePreview(normalized);
+	                  }}
+	                  placeholder="Paste image URL"
+	                  className="mt-2"
+	                />
               </div>
             )}
           </div>

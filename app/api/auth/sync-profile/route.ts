@@ -1,17 +1,48 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createRouteHandlerClient } from "@/lib/supabase/server";
+import { applyCors, applySecurityHeaders, preflight } from "@/lib/api/http";
+import { checkRateLimit, rateLimitResponse } from "@/lib/api/rateLimit";
+import { normalizeEmail } from "@/lib/api/validation";
+
+const cors = { methods: ["POST", "OPTIONS"], headers: ["Content-Type", "Authorization"] };
+
+function withHeaders(req: NextRequest, res: Response) {
+  res.headers.set("Cache-Control", "no-store, must-revalidate");
+  res.headers.set("Pragma", "no-cache");
+  applyCors(req, res.headers, cors);
+  applySecurityHeaders(res.headers);
+  return res;
+}
+
+export function OPTIONS(req: NextRequest) {
+  return preflight(req, cors);
+}
 
 export async function POST(request: NextRequest) {
-  const response = NextResponse.json({ ok: true }, { status: 200 });
-  response.headers.set("Cache-Control", "no-store, must-revalidate");
-  response.headers.set("Pragma", "no-cache");
-
-  const supabase = createRouteHandlerClient(request, response);
+  // Use a "cookie carrier" response so Supabase can set refreshed auth cookies,
+  // then copy them onto the final JSON response we return.
+  const cookieCarrier = NextResponse.next();
+  const supabase = createRouteHandlerClient(request, cookieCarrier);
 
   // Must be signed in (verified user).
   const { data: userData, error: userErr } = await supabase.auth.getUser();
+  const rl = await checkRateLimit(request, {
+    keyPrefix: "api:auth:sync-profile",
+    ip: { max: 20, windowMs: 60_000 },
+    user: { max: 30, windowMs: 60_000 },
+    userId: userData?.user?.id ?? null,
+  });
+  if (!rl.ok) return withHeaders(request, rateLimitResponse(rl.retryAfterSeconds));
+
+  const respond = (payload: unknown, init?: number) => {
+    const status = typeof init === "number" ? init : 200;
+    const res = NextResponse.json(payload, { status });
+    for (const c of cookieCarrier.cookies.getAll()) res.cookies.set(c);
+    return withHeaders(request, res);
+  };
+
   if (userErr || !userData?.user) {
-    return NextResponse.json({ ok: false, reason: "not_signed_in" }, { status: 401 });
+    return respond({ ok: false, reason: "not_signed_in" }, 401);
   }
 
   const user = userData.user;
@@ -19,7 +50,7 @@ export async function POST(request: NextRequest) {
   // Read identities to detect Google and get email safely.
   const { data: idsData, error: idsErr } = await supabase.auth.getUserIdentities();
   if (idsErr) {
-    return NextResponse.json({ ok: false, reason: "identities_failed" }, { status: 200 });
+    return respond({ ok: false, reason: "identities_failed" }, 200);
   }
 
   const identities = (idsData?.identities ?? []) as any[];
@@ -29,10 +60,12 @@ export async function POST(request: NextRequest) {
   const googleEmail =
     (googleIdentity?.identity_data?.email as string | undefined) || (user.email as string | null) || null;
 
-  if (googleIdentity && googleEmail) {
+  const email = googleEmail ? normalizeEmail(googleEmail) : null;
+
+  if (googleIdentity && email) {
     const { error: upsertErr } = await supabase
       .from("profiles")
-      .upsert({ id: user.id, email: googleEmail, updated_at: new Date().toISOString() }, { onConflict: "id" });
+      .upsert({ id: user.id, email, updated_at: new Date().toISOString() }, { onConflict: "id" });
 
     // Best-effort audit: never break the flow even if table/policy isn't present.
     void (async () => {
@@ -48,14 +81,11 @@ export async function POST(request: NextRequest) {
     })();
 
     if (upsertErr) {
-      return NextResponse.json(
-        { ok: false, reason: "profiles_upsert_failed", googleLinked: true, email: googleEmail, wrote: false },
-        { status: 200 }
-      );
+      return respond({ ok: false, reason: "profiles_upsert_failed", googleLinked: true, email, wrote: false }, 200);
     }
 
-    return NextResponse.json({ ok: true, googleLinked: true, email: googleEmail, wrote: true }, { status: 200 });
+    return respond({ ok: true, googleLinked: true, email, wrote: true }, 200);
   }
 
-  return NextResponse.json({ ok: true, googleLinked: false, email: null, wrote: false }, { status: 200 });
+  return respond({ ok: true, googleLinked: Boolean(googleIdentity), email: null, wrote: false }, 200);
 }

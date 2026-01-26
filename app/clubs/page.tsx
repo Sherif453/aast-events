@@ -7,10 +7,11 @@ import { Input } from '@/components/ui/input';
 export default async function ClubsPage({
     searchParams,
 }: {
-    searchParams?: { q?: string };
+    searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
     const supabase = await createClient();
-    const q = typeof searchParams?.q === 'string' ? searchParams.q.trim() : '';
+    const sp = searchParams ? await searchParams : undefined;
+    const q = typeof sp?.q === 'string' ? sp.q.trim() : '';
 
     const {
         data: { user },

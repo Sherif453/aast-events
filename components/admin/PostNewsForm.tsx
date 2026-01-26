@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -16,10 +16,13 @@ interface PostNewsFormProps {
 
 const BUCKET = 'club-news';
 
+type NewsType = 'news' | 'achievement' | 'announcement';
+
 export default function PostNewsForm({ clubId, userId }: PostNewsFormProps) {
+    void userId;
     const [title, setTitle] = useState('');
     const [content, setContent] = useState('');
-    const [type, setType] = useState<'news' | 'achievement' | 'announcement'>('news');
+    const [type, setType] = useState<NewsType>('news');
 
     const [imageUrl, setImageUrl] = useState('');
     const [imageFile, setImageFile] = useState<File | null>(null);
@@ -41,7 +44,7 @@ export default function PostNewsForm({ clubId, userId }: PostNewsFormProps) {
     }, [imageFile]);
 
     const newsTypes = useMemo(
-        () => [
+        (): Array<{ value: NewsType; label: string; icon: ReactNode; color: 'green' | 'yellow' | 'blue' }> => [
             { value: 'news', label: 'News', icon: <Newspaper className="h-5 w-5" />, color: 'green' },
             { value: 'achievement', label: 'Achievement', icon: <Award className="h-5 w-5" />, color: 'yellow' },
             { value: 'announcement', label: 'Announcement', icon: <Megaphone className="h-5 w-5" />, color: 'blue' },
@@ -73,6 +76,19 @@ export default function PostNewsForm({ clubId, userId }: PostNewsFormProps) {
         setImageUrl('');
     };
 
+    const normalizeImageUrl = (raw: string): string | null => {
+        const v = raw.trim();
+        if (!v) return null;
+        if (v.startsWith('/') && !v.startsWith('//')) return v;
+        try {
+            const u = new URL(v);
+            if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+            return u.toString();
+        } catch {
+            return null;
+        }
+    };
+
     const uploadImageIfNeeded = async (): Promise<string | null> => {
         if (imageFile) {
             const safeName = imageFile.name.replace(/\s+/g, '-').replace(/[^\w.\-]/g, '');
@@ -90,8 +106,9 @@ export default function PostNewsForm({ clubId, userId }: PostNewsFormProps) {
             return data.publicUrl ?? null;
         }
 
-        const url = imageUrl.trim();
-        return url ? url : null;
+        const normalized = normalizeImageUrl(imageUrl);
+        if (imageUrl.trim() && !normalized) throw new Error('Invalid image URL');
+        return normalized;
     };
 
     //  Non-blocking fanout (DB-side) so we don't violate notifications RLS from the client
@@ -112,14 +129,34 @@ export default function PostNewsForm({ clubId, userId }: PostNewsFormProps) {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        if (!title.trim() || !content.trim()) {
+        const cleanTitle = title.trim();
+        const cleanContent = content.trim();
+
+        if (!cleanTitle || !cleanContent) {
             alert('Please fill in all required fields');
+            return;
+        }
+
+        if (cleanTitle.length > 200) {
+            alert('Title is too long (max 200 characters).');
+            return;
+        }
+
+        if (cleanContent.length > 5000) {
+            alert('Content is too long (max 5000 characters).');
             return;
         }
 
         setLoading(true);
 
         try {
+            const { data: authData, error: authErr } = await supabase.auth.getUser();
+            if (authErr || !authData?.user?.id) {
+                alert('You must be logged in to post news.');
+                return;
+            }
+            const createdBy = authData.user.id;
+
             const finalImageUrl = await uploadImageIfNeeded();
 
             const { data: newsData, error } = await supabase
@@ -127,11 +164,11 @@ export default function PostNewsForm({ clubId, userId }: PostNewsFormProps) {
                 .insert([
                     {
                         club_id: clubId,
-                        title: title.trim(),
-                        content: content.trim(),
+                        title: cleanTitle,
+                        content: cleanContent,
                         type,
                         image_url: finalImageUrl,
-                        created_by: userId,
+                        created_by: createdBy,
                     },
                 ])
                 .select()
@@ -155,7 +192,7 @@ export default function PostNewsForm({ clubId, userId }: PostNewsFormProps) {
         }
     };
 
-    const previewSrc = localPreviewUrl || imageUrl.trim();
+    const previewSrc = localPreviewUrl || normalizeImageUrl(imageUrl) || '';
     const showPreview = Boolean(previewSrc);
 
     return (
@@ -167,7 +204,7 @@ export default function PostNewsForm({ clubId, userId }: PostNewsFormProps) {
                         <button
                             key={newsType.value}
                             type="button"
-                            onClick={() => setType(newsType.value as any)}
+                            onClick={() => setType(newsType.value)}
                             className={`p-4 rounded-lg border-2 transition flex flex-col items-center gap-2 ${type === newsType.value
                                 ? newsType.color === 'green'
                                     ? 'border-green-500 bg-green-50 dark:bg-green-950'

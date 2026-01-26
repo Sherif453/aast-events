@@ -1,13 +1,54 @@
-import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { createAdminClient } from '@/lib/supabase/admin';
+import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { applyCors, applySecurityHeaders, preflight } from "@/lib/api/http";
+import { checkRateLimit, rateLimitResponse } from "@/lib/api/rateLimit";
+import { parseQuery, z, zUuid } from "@/lib/api/validation";
 
 type AdminRole = 'super_admin' | 'club_admin' | 'event_volunteer' | 'read_only_analytics';
 
+type AttendeeRow = {
+    user_id: string;
+    checked_in: boolean;
+    checked_in_at: string | null;
+    created_at: string;
+    event_id: string;
+};
+
+type ProfileRow = {
+    id: string;
+    full_name: string | null;
+    email: string | null;
+    major: string | null;
+    year: number | null;
+};
+
 export async function GET(request: Request) {
-    const { searchParams } = new URL(request.url);
-    const eventId = searchParams.get('eventId');
-    const type = searchParams.get('type') || 'rsvps';
+    const cors = { methods: ["GET", "OPTIONS"], headers: ["Content-Type", "Authorization"] };
+    const withHeaders = (res: Response) => {
+        res.headers.set("Cache-Control", "no-store, must-revalidate");
+        res.headers.set("Pragma", "no-cache");
+        applyCors(request, res.headers, cors);
+        applySecurityHeaders(res.headers);
+        return res;
+    };
+
+    const querySchema = z
+        .object({
+            eventId: z.string().transform((s) => s.trim()).pipe(zUuid).optional(),
+            type: z.enum(["rsvps", "checked-in"]).optional(),
+        })
+        .strict();
+
+    let eventId: string | null = null;
+    let type: "rsvps" | "checked-in" = "rsvps";
+    try {
+        const q = parseQuery(request, querySchema);
+        eventId = q.eventId ?? null;
+        type = q.type ?? "rsvps";
+    } catch {
+        return withHeaders(NextResponse.json({ error: "Invalid query" }, { status: 400 }));
+    }
 
     const supabase = await createClient();
 
@@ -15,7 +56,15 @@ export async function GET(request: Request) {
         data: { user },
     } = await supabase.auth.getUser();
 
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const rl = await checkRateLimit(request, {
+        keyPrefix: "api:admin:export-csv",
+        ip: { max: 60, windowMs: 60_000 },
+        user: { max: 120, windowMs: 60_000 },
+        userId: user?.id ?? null,
+    });
+    if (!rl.ok) return withHeaders(rateLimitResponse(rl.retryAfterSeconds));
+
+    if (!user) return withHeaders(NextResponse.json({ error: "Unauthorized" }, { status: 401 }));
 
     const { data: adminData, error: adminErr } = await supabase
         .from('admin_users')
@@ -23,14 +72,14 @@ export async function GET(request: Request) {
         .eq('id', user.id)
         .maybeSingle();
 
-    if (adminErr || !adminData) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (adminErr || !adminData) return withHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }));
 
     const role = adminData.role as AdminRole;
     const adminClubId = adminData.club_id ?? null;
 
     //  Only these can export
     if (!['super_admin', 'club_admin', 'event_volunteer'].includes(role)) {
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        return withHeaders(NextResponse.json({ error: 'Forbidden' }, { status: 403 }));
     }
 
     //  If eventId provided, check access to that event
@@ -42,7 +91,7 @@ export async function GET(request: Request) {
             .eq('id', eventId)
             .maybeSingle();
 
-        if (eventErr || !eventRow) return NextResponse.json({ error: 'Event not found' }, { status: 404 });
+        if (eventErr || !eventRow) return withHeaders(NextResponse.json({ error: 'Event not found' }, { status: 404 }));
 
         allowedEventClubId = eventRow.club_id ?? null;
 
@@ -50,7 +99,7 @@ export async function GET(request: Request) {
             role === 'super_admin' ||
             (allowedEventClubId && adminClubId && allowedEventClubId === adminClubId);
 
-        if (!allowed) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        if (!allowed) return withHeaders(NextResponse.json({ error: 'Forbidden' }, { status: 403 }));
     }
 
     try {
@@ -70,7 +119,7 @@ export async function GET(request: Request) {
 
         //  If no eventId and not super_admin: restrict to their club by filtering events in that club
         if (!eventId && role !== 'super_admin') {
-            if (!adminClubId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+            if (!adminClubId) return withHeaders(NextResponse.json({ error: 'Forbidden' }, { status: 403 }));
 
             const { data: clubEvents, error: clubEventsErr } = await supabase
                 .from('events')
@@ -83,12 +132,12 @@ export async function GET(request: Request) {
             if (eventIds.length === 0) {
                 // empty csv
                 const csv = ['Name,Email,Major,Year,RSVP Date,Checked In,Check-In Time'].join('\n');
-                return new NextResponse(csv, {
+                return withHeaders(new NextResponse(csv, {
                     headers: {
                         'Content-Type': 'text/csv',
                         'Content-Disposition': `attachment; filename="attendees-${type}-${Date.now()}.csv"`,
                     },
-                });
+                }));
             }
 
             query = query.in('event_id', eventIds);
@@ -97,24 +146,47 @@ export async function GET(request: Request) {
         const { data: attendees, error } = await query;
         if (error) throw error;
 
-        const userIds = Array.from(new Set(attendees?.map((a) => a.user_id) || []));
+        const attendeeRows = ((attendees ?? []) as unknown as AttendeeRow[]);
+        const userIds = Array.from(new Set(attendeeRows.map((a) => a.user_id)));
 
-        //  service-role fetch private profiles
-        const admin = createAdminClient();
+        // Prefer the caller's cookie-based client (keeps RLS in effect).
+        // If RLS blocks it, fall back to service role *after* we’ve verified admin scope.
+        let profiles: unknown[] = [];
+        if (userIds.length) {
+            const { data: profilesData, error: profilesErr } = await supabase
+                .from('profiles')
+                .select('id, full_name, email, major, year')
+                .in('id', userIds);
 
-        const { data: profiles, error: profilesErr } = userIds.length
-            ? await admin.from('profiles').select('id, full_name, email, major, year').in('id', userIds)
-            : { data: [], error: null };
+            if (!profilesErr) {
+                profiles = (profilesData as unknown[]) ?? [];
+            } else {
+                console.error('profiles export lookup failed (rls?):', profilesErr);
 
-        if (profilesErr) throw profilesErr;
+                const canUseServiceRole = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
+                if (canUseServiceRole) {
+                    const admin = createAdminClient();
+                    const { data: adminProfiles, error: adminProfilesErr } = await admin
+                        .from('profiles')
+                        .select('id, full_name, email, major, year')
+                        .in('id', userIds);
+                    if (adminProfilesErr) {
+                        console.error('profiles export lookup (service role) failed:', adminProfilesErr);
+                    } else {
+                        profiles = (adminProfiles as unknown[]) ?? [];
+                    }
+                }
+            }
+        }
 
-        const map = new Map<string, any>();
-        (profiles || []).forEach((p: any) => map.set(p.id, p));
+        const profileRows = ((profiles ?? []) as unknown as ProfileRow[]);
+        const map = new Map<string, ProfileRow>();
+        profileRows.forEach((p) => map.set(p.id, p));
 
         const headers = ['Name', 'Email', 'Major', 'Year', 'RSVP Date', 'Checked In', 'Check-In Time'];
 
         const rows =
-            attendees?.map((a) => {
+            attendeeRows.map((a) => {
                 const profile = map.get(a.user_id);
                 return [
                     profile?.full_name || 'N/A',
@@ -131,14 +203,18 @@ export async function GET(request: Request) {
 
         const csv = [headers.join(','), ...rows].join('\n');
 
-        return new NextResponse(csv, {
+        return withHeaders(new NextResponse(csv, {
             headers: {
                 'Content-Type': 'text/csv',
                 'Content-Disposition': `attachment; filename="attendees-${type}-${Date.now()}.csv"`,
             },
-        });
+        }));
     } catch (err: any) {
         console.error('CSV Export Error:', err);
-        return NextResponse.json({ error: err?.message || 'Export failed' }, { status: 500 });
+        return withHeaders(NextResponse.json({ error: err?.message || 'Export failed' }, { status: 500 }));
     }
+}
+
+export function OPTIONS(request: Request) {
+    return preflight(request, { methods: ["GET", "OPTIONS"], headers: ["Content-Type", "Authorization"] });
 }

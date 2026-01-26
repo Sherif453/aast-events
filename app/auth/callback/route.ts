@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { applySecurityHeaders } from "@/lib/api/http";
 
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
@@ -29,6 +30,7 @@ export async function GET(request: NextRequest) {
     const res = NextResponse.redirect(to);
     res.headers.set("Cache-Control", "no-store, must-revalidate");
     res.headers.set("Pragma", "no-cache");
+    applySecurityHeaders(res.headers);
     return res;
   };
 

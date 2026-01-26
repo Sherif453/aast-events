@@ -17,16 +17,13 @@ const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
 
-  // Project-specific overrides (pragmatic: allow , tighten later)
+  // Project-specific overrides (remove dangerous rules)
   {
     rules: {
-      "@typescript-eslint/no-explicit-any": "off",
-
-      // React 19 purity lint is noisy for server components / rendering-time date math.
-      // Fix real issues, but don't block builds on this rule.
-      "react-hooks/purity": "off",
-      "react-hooks/set-state-in-effect": "off",
-      "@next/next/no-img-element": "off",
+      "@typescript-eslint/no-explicit-any": "error", // Ensure type safety
+      "react-hooks/purity": "error", // Enforce purity in hooks
+      "react-hooks/set-state-in-effect": "error", // Prevent unsafe state updates
+      "@next/next/no-img-element": "error", // Ensure the use of next/image for all images
     }
   }
 ]);
