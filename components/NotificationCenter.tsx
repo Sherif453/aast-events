@@ -137,12 +137,18 @@ export default function NotificationCenter() {
         if (error) {
           const msg = String((error as any)?.message || '').toLowerCase();
           const code = String((error as any)?.code || '').toLowerCase();
+          const details = typeof (error as any)?.details === 'string' ? (error as any).details : '';
+          const hint = typeof (error as any)?.hint === 'string' ? (error as any).hint : '';
+          const aborted = controller.signal.aborted;
 
-          const isEmptyError =
-            !!error && !msg && !code && !(error as any)?.details && !(error as any)?.hint;
+          const isEmptyError = !!error && !msg && !code && !details && !hint;
 
           const isTransient =
+            aborted ||
             isEmptyError ||
+            msg.includes('abort') ||
+            msg.includes('canceled') ||
+            msg.includes('cancelled') ||
             msg.includes('fetch') ||
             msg.includes('failed to fetch') ||
             msg.includes('network') ||
@@ -153,8 +159,8 @@ export default function NotificationCenter() {
           if (!isTransient) {
             console.error('Failed to load notifications:', error, {
               message: (error as any)?.message,
-              details: (error as any)?.details,
-              hint: (error as any)?.hint,
+              details,
+              hint,
               code: (error as any)?.code,
             });
           }
