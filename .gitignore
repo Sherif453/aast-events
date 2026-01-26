@@ -40,7 +40,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# --- Codex / AI local tooling ---
+# Local Tooling
 .codex/
 **/.codex/
 codex.json
@@ -48,6 +48,5 @@ codex.yaml
 codex.yml
 .codexrc
 .codexrc.*
-# If you use a local config file for Codex:
 codex.toml
 config.toml

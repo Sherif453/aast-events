@@ -197,7 +197,7 @@ export function Header() {
     const mountedRef = useRef(false);
     const reqIdRef = useRef(0);
 
-    //  FIX: Separate bootstrap flag to prevent auth listener conflicts
+    // Separate bootstrap flag to prevent auth listener conflicts
     const bootstrappedRef = useRef(false);
 
     // Cache with proper structure
@@ -214,9 +214,7 @@ export function Header() {
         fn();
     }, []);
 
-    /**
-     *  FIX: Improved cache check - validates userId AND freshness
-     */
+    // Improved cache check - validates userId AND freshness
     const getCachedData = useCallback((userId: string) => {
         const c = cacheRef.current;
         if (c.userId !== userId) return null;
@@ -225,9 +223,7 @@ export function Header() {
         return c;
     }, []);
 
-    /**
-     *  FIX: Single source of truth for fetching user data with retry
-     */
+    // Single source of truth for fetching user data with retry
     const fetchUserData = useCallback(
         async (userId: string, opts?: { useCache?: boolean }) => {
             const myReq = ++reqIdRef.current;
@@ -296,7 +292,7 @@ export function Header() {
                     if (!dbRes.timedOut) {
                         console.error("[Header] DB fetch error:", dbRes.error);
                     }
-                    //  FIX: On timeout, keep existing user data if available
+                    // On timeout, keep existing user data if available
                     return false;
                 }
 
@@ -313,7 +309,7 @@ export function Header() {
                 const verifiedThisMonth = Number(monthQ?.count ?? 0);
                 const nextBadges = computeBadges({ verifiedTotal, verifiedThisMonth });
 
-                //  FIX: Update cache with fetched data
+                // Update cache with fetched data
                 cacheRef.current = {
                     userId,
                     ts: Date.now(),
@@ -347,9 +343,7 @@ export function Header() {
         [supabase, safeSet, getCachedData]
     );
 
-    /**
-     *  FIX: Simplified session refresh
-     */
+    // Simplified session refresh
     const refreshSession = useCallback(
         async (reason: string, opts?: { useCache?: boolean }) => {
             const myReq = ++reqIdRef.current;
@@ -372,7 +366,7 @@ export function Header() {
             const sessionUser = sessionRes.value.data.session?.user ?? null;
 
             if (!sessionUser) {
-                //  FIX: Only clear if we're sure there's no session
+                // Only clear if we're sure there's no session
                 // Don't clear on transient failures during tab switch
                 if (reason === "auth_state_change" || reason === "boot") {
                     safeSet(() => {
@@ -399,7 +393,7 @@ export function Header() {
         }
     }, [supabase]);
 
-    //  FIX: Bootstrap ONCE with retry + absolute timeout failsafe
+    // Bootstrap ONCE with retry + absolute timeout failsafe
     useEffect(() => {
         if (bootstrappedRef.current) return;
 
@@ -408,7 +402,7 @@ export function Header() {
 
         let cancelled = false;
 
-        //  CRITICAL: Absolute failsafe - if we're not ready after 15s, force ready state
+        // Absolute failsafe - if we're not ready after 15s, force ready state
         const failsafeTimeout = setTimeout(() => {
             if (!mountedRef.current || cancelled) return;
             console.warn("[Header boot] Failsafe triggered - forcing ready state");
@@ -491,14 +485,14 @@ export function Header() {
         };
     }, [supabase, fetchUserData, safeSet]);
 
-    //  FIX: Auth state listener - only after bootstrap
+    // Auth state listener - only after bootstrap
     useEffect(() => {
         if (!ready || !bootstrappedRef.current) return;
 
         const { data: listener } = supabase.auth.onAuthStateChange(async (event, session) => {
             if (!mountedRef.current) return;
 
-            //  FIX: Handle SIGNED_OUT explicitly
+            // Handle SIGNED_OUT explicitly
             if (event === "SIGNED_OUT") {
                 safeSet(() => {
                     setUser(null);
@@ -513,7 +507,7 @@ export function Header() {
             const sessionUser = session?.user ?? null;
 
             if (sessionUser) {
-                //  FIX: Use cache for auth state changes (tab switches)
+                // Use cache for auth state changes (tab switches)
                 await fetchUserData(sessionUser.id, { useCache: true });
             }
         });
@@ -521,7 +515,7 @@ export function Header() {
         return () => listener?.subscription?.unsubscribe();
     }, [supabase, ready, fetchUserData, safeSet, router]);
 
-    //  FIX: Tab visibility - use cache aggressively
+    // Tab visibility - use cache aggressively
     useEffect(() => {
         if (!ready) return;
 
@@ -559,7 +553,7 @@ export function Header() {
         };
     }, [ready, user?.id, refreshSession]);
 
-    //  FIX: Profile changed event - invalidate cache and force refresh
+    // Profile changed event - invalidate cache and force refresh
     useEffect(() => {
         if (!ready) return;
 

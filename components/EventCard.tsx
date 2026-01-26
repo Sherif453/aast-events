@@ -56,7 +56,7 @@ export function EventCard({
 
     const displayLabel = isPast ? "attended" : "attending";
 
-    /* ---------------- LIST VIEW ---------------- */
+    // LIST VIEW
     if (viewMode === "list") {
         return (
             <div
@@ -126,7 +126,7 @@ export function EventCard({
         );
     }
 
-    /* ---------------- GRID VIEW ---------------- */
+    // GRID VIEW
     return (
         <div
             onClick={() => router.push(`/event/${Number(event.id)}`)}

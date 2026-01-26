@@ -53,7 +53,7 @@ export default async function EventDetailsPage({
     const { id: eventId } = await params;
     const supabase = await createClient();
 
-    //  FIX: use getUser() for verified auth data (avoid session-user warning)
+    //  : use getUser() for verified auth data (avoid session-user warning)
     let user: any = null;
     try {
         const { data: userData, error: userErr } = await supabase.auth.getUser();
@@ -172,7 +172,7 @@ export default async function EventDetailsPage({
     if (rawAttendees && rawAttendees.length > 0) {
         const userIds = rawAttendees.map((a) => a.user_id);
 
-        //  FIX: use PUBLIC profiles here so normal users don't break on RLS
+        //  : use PUBLIC profiles here so normal users don't break on RLS
         const { data: profilesData } = await supabase
             .from("profiles_public")
             .select("id, full_name, avatar_url")
@@ -273,8 +273,6 @@ export default async function EventDetailsPage({
                                 {!isConcluded && (
                                     <EventReminderButton
                                         eventId={event.id}
-                                        eventTitle={event.title}
-                                        startTime={event.start_time}
                                         initialUserId={userId}
                                     />
                                 )}

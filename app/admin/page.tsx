@@ -69,7 +69,6 @@ export default async function AdminDashboardPage() {
     const canViewAnalytics = role === "super_admin" || role === "club_admin" || role === "read_only_analytics";
     const canViewAuditLog = role === "super_admin" || role === "club_admin";
 
-    // ---------- STATS ----------
     // Always use RPC for scoped counts (super_admin/read_only_analytics => global; club_admin/volunteer => club scoped)
     let totalEvents = 0;
     let totalRSVPs = 0;

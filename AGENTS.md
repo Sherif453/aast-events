@@ -20,6 +20,9 @@ auth persistence, or causing random logouts.
 - Server Components by default. Add `"use client"` only when required.
 - Avoid nested anchors/links (causes hydration issues):
   - `<Link><Link/></Link>`, `<a><a/></a>`, `<Link><a/></Link>`
+- Avoid nesting interactive elements inside links (a11y/hydration/click issues):
+  - `<Link><button/></Link>`, `<Link><span role="button"/></Link>`
+  - Preferred patterns: `Button` with `asChild` + `Link`, or a row container with a sibling “overlay” `Link` and separate buttons.
 - Public browsing must remain stable: `/event/[id]` should render for logged-out
   users without server-side auth failures.
 
@@ -106,6 +109,11 @@ auth persistence, or causing random logouts.
   `profiles_public`.
 - Don’t expose `profiles` sensitive fields to public contexts.
 - `profiles_public` is public by design and safe for attendee names/avatars.
+
+### Upload safety
+
+- Prefer raster image uploads (PNG/JPG/WebP) for user-provided logos/images unless SVG is sanitized end-to-end.
+- Keep `<input accept=...>` and runtime validation in sync to avoid allowing risky formats accidentally.
 
 ---
 

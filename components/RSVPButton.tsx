@@ -53,7 +53,7 @@ export default function RSVPButton({
         setIsAttending(attendingNow);
     }, [eventId, supabase]);
 
-    //  Fix: after login/logout, update state + refresh + refetch RSVP immediately
+    // after login/logout, update state + refresh + refetch RSVP immediately
     useEffect(() => {
         let isMounted = true;
 

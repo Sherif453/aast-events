@@ -232,7 +232,7 @@ export default function ProfileClient() {
     });
 
     /**
-     *  FIXED: Don't wipe identities to [] on transient failures.
+     *   Don't wipe identities to [] on transient failures.
      * - Returns true only when we successfully refreshed identities.
      * - Uses request id to prevent out-of-order "older" results overriding newer state.
      */
@@ -803,7 +803,7 @@ export default function ProfileClient() {
     };
 
     /**
-     *  FIX: "Google linked" should NOT depend only on identities (network can fail).
+     *  "Google linked" should NOT depend only on identities (network can fail).
      * - identities can be stale/fail; profileRow.email is your durable truth (you clear it on unlink).
      */
     const googleLinkedFromIdentities = identities.some((i) => i.provider === "google");
@@ -942,7 +942,7 @@ export default function ProfileClient() {
     const initials = getInitials(profileData.full_name, user.email);
     const phoneDisplay = formatPhoneForDisplay(user.phone || "");
 
-    //  Email display logic (fixed): trust profiles.email as the real source
+    //  Email display logic : trust profiles.email as the real source
     const emailDisplay = hasGoogleIdentity
         ? (profileRow?.email ?? user.email ?? "").trim() || "No email"
         : "No email";

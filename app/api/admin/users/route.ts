@@ -14,7 +14,7 @@ export async function GET() {
     const { data: adminRow, error: adminErr } = await supabase
         .from('admin_users')
         .select('role')
-        .eq('id', user.id) //  FIXED (id not user_id)
+        .eq('id', user.id) //(id not  user_id)
         .maybeSingle();
 
     if (adminErr) {

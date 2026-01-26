@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // --- Helper: no-cache redirect ---
+  // Helper: no-cache redirect 
   const redirectNoCache = (to: URL) => {
     const res = NextResponse.redirect(to);
     res.headers.set("Cache-Control", "no-store, must-revalidate");
@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
     return res;
   };
 
-  // --- Handle OAuth errors (keep your existing mapping) ---
+  // Handle OAuth errors (keep your existing mapping) 
   if (error || errorDescription) {
     const msg = (errorDescription || error || "").toLowerCase();
 

@@ -9,7 +9,7 @@ import { useRouter } from 'next/navigation';
 interface DeleteEventButtonProps {
     eventId: string;
     eventTitle: string;
-    enabled?: boolean; // NEW
+    enabled?: boolean; 
 }
 
 export default function DeleteEventButton({ eventId, eventTitle, enabled = true }: DeleteEventButtonProps) {
