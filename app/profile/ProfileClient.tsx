@@ -117,6 +117,12 @@ export default function ProfileClient() {
 
     const [user, setUser] = useState<User | null>(null);
     const [loading, setLoading] = useState(true);
+    const [authLoadIssue, setAuthLoadIssue] = useState<null | { kind: "session_timeout" | "session_error"; message: string }>(null);
+    const [reloadKey, setReloadKey] = useState(0);
+
+    const debugAuth =
+        process.env.NEXT_PUBLIC_DEBUG_AUTH === "1" ||
+        (searchParams.get("debug_auth") === "1");
 
     const [rsvpCount, setRsvpCount] = useState<number>(0);
     const [verifiedCount, setVerifiedCount] = useState<number>(0);
@@ -362,6 +368,14 @@ export default function ProfileClient() {
         const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
             const next = session?.user ?? null;
 
+            if (debugAuth) {
+                console.info("[AuthDebug] onAuthStateChange", {
+                    event,
+                    hasSession: Boolean(session),
+                    hasUser: Boolean(next),
+                });
+            }
+
             // Never clear user state on transient auth issues; only on explicit SIGNED_OUT.
             if (event === "SIGNED_OUT") {
                 safeSet(() => setUser(null));
@@ -380,7 +394,45 @@ export default function ProfileClient() {
             mountedRef.current = false;
             sub.subscription.unsubscribe();
         };
-    }, [supabase, safeLoadIdentities, safeSet, restoreOtpCooldown]);
+    }, [supabase, safeLoadIdentities, safeSet, restoreOtpCooldown, debugAuth]);
+
+    // Best-effort client auth diagnostics (dev-only unless explicitly enabled).
+    useEffect(() => {
+        if (!debugAuth) return;
+        if (typeof window === "undefined") return;
+
+        const safeStorageAvailable = (kind: "localStorage" | "sessionStorage") => {
+            try {
+                const storage = kind === "localStorage" ? window.localStorage : window.sessionStorage;
+                const k = "__aast_storage_test__";
+                storage.setItem(k, "1");
+                storage.removeItem(k);
+                return true;
+            } catch {
+                return false;
+            }
+        };
+
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+        const supabaseOrigin = (() => {
+            try {
+                return supabaseUrl ? new URL(supabaseUrl).origin : null;
+            } catch {
+                return null;
+            }
+        })();
+
+        console.info("[AuthDebug] environment", {
+            locationOrigin: window.location.origin,
+            supabaseOrigin,
+            hasAnonKey: Boolean(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
+            cookieEnabled: navigator.cookieEnabled,
+            localStorageOk: safeStorageAvailable("localStorage"),
+            sessionStorageOk: safeStorageAvailable("sessionStorage"),
+            visibility: document.visibilityState,
+            online: navigator.onLine,
+        });
+    }, [debugAuth]);
 
     // OAuth callback handling
     useEffect(() => {
@@ -460,11 +512,13 @@ export default function ProfileClient() {
         const failsafeTimeout = setTimeout(() => {
             if (!mountedRef.current || cancelled) return;
             console.warn("[Profile] Failsafe triggered - forcing ready state");
+            safeSet(() => setAuthLoadIssue({ kind: "session_timeout", message: "Session check timed out. You may still be signed in—please retry." }));
             safeSet(() => setLoading(false));
         }, ABSOLUTE_MAX_LOAD_MS);
 
         (async () => {
             safeSet(() => setLoading(true));
+            safeSet(() => setAuthLoadIssue(null));
 
             const MAX_RETRIES = 2;
             let attempt = 0;
@@ -473,10 +527,18 @@ export default function ProfileClient() {
                 attempt++;
 
                 try {
+                    const sessionPromise = supabase.auth.getSession();
+                    const t0 = debugAuth ? Date.now() : 0;
+                    if (debugAuth) {
+                        void sessionPromise.then(
+                            () => console.info("[AuthDebug] getSession resolved", { ms: Date.now() - t0 }),
+                            (err: unknown) => console.info("[AuthDebug] getSession rejected", { ms: Date.now() - t0, err })
+                        );
+                    }
                     const {
                         data: { session },
                         error: sessionError,
-                    } = await withTimeout(supabase.auth.getSession(), PROFILE_LOAD_TIMEOUT_MS, "getSession_timeout");
+                    } = await withTimeout(sessionPromise, PROFILE_LOAD_TIMEOUT_MS, "getSession_timeout");
 
                     if (cancelled || !mountedRef.current) {
                         clearTimeout(failsafeTimeout);
@@ -501,6 +563,7 @@ export default function ProfileClient() {
                         safeSet(() => setUser(currentUser));
                         restoreOtpCooldown(currentUser.id);
                     }
+                    safeSet(() => setAuthLoadIssue(null));
 
                     // Verify with Auth server (best-effort). If it fails, keep the session user.
                     try {
@@ -641,6 +704,22 @@ export default function ProfileClient() {
                         continue;
                     }
                     console.error("[Profile load] Failed after retries:", e);
+                    const msg = e instanceof Error ? e.message : "unknown_error";
+                    if (msg === "getSession_timeout") {
+                        safeSet(() =>
+                            setAuthLoadIssue({
+                                kind: "session_timeout",
+                                message: "Session check timed out. You may still be signed in—please retry.",
+                            })
+                        );
+                    } else {
+                        safeSet(() =>
+                            setAuthLoadIssue({
+                                kind: "session_error",
+                                message: "Failed to verify your session. Please retry.",
+                            })
+                        );
+                    }
                     clearTimeout(failsafeTimeout);
                     safeSet(() => setLoading(false));
                     return;
@@ -653,7 +732,7 @@ export default function ProfileClient() {
             clearTimeout(failsafeTimeout);
             loadedRef.current = false;
         };
-    }, [supabase, safeLoadIdentities, safeSet, restoreOtpCooldown]);
+    }, [supabase, safeLoadIdentities, safeSet, restoreOtpCooldown, reloadKey, debugAuth]);
 
     const handleSave = async () => {
         if (!user) return;
@@ -946,6 +1025,28 @@ export default function ProfileClient() {
     }
 
     if (!user) {
+        if (authLoadIssue) {
+            return (
+                <div className="min-h-screen flex flex-col items-center justify-center bg-background px-6 text-center gap-4">
+                    <h1 className="text-2xl font-bold text-foreground">Having trouble loading your session</h1>
+                    <p className="text-sm text-muted-foreground max-w-md">{authLoadIssue.message}</p>
+                    <div className="flex gap-3">
+                        <Button
+                            onClick={() => {
+                                setLoading(true);
+                                setAuthLoadIssue(null);
+                                setReloadKey((k) => k + 1);
+                            }}
+                        >
+                            Retry
+                        </Button>
+                        <Link href="/">
+                            <Button variant="outline">Go Home</Button>
+                        </Link>
+                    </div>
+                </div>
+            );
+        }
         return (
             <div className="min-h-screen flex flex-col items-center justify-center bg-background">
                 <h1 className="text-2xl font-bold mb-4 text-foreground">Not Logged In</h1>
@@ -1125,6 +1226,7 @@ export default function ProfileClient() {
                                 height={96}
                                 className="h-full w-full object-cover"
                                 sizes="96px"
+                                priority
                                 unoptimized
                             />
                             ) : (
