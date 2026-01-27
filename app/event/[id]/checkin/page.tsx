@@ -11,6 +11,22 @@ type ProfileRow = {
     avatar_url: string | null;
 };
 
+type AttendeeRow = {
+    id: string;
+    user_id: string;
+    checked_in: boolean;
+    checked_in_at: string | null;
+    qr_code: string | null;
+    created_at: string;
+};
+
+type PublicProfileRow = {
+    id: string;
+    full_name: string | null;
+    email?: string | null;
+    avatar_url?: string | null;
+};
+
 export default async function CheckInPage({
     params,
 }: {
@@ -77,9 +93,14 @@ export default async function CheckInPage({
     }
 
     //  Fetch profiles (robust)
-    let attendees: any[] = [];
-    if (rawAttendees && rawAttendees.length > 0) {
-        const userIds = Array.from(new Set(rawAttendees.map((a) => a.user_id)));
+    type AttendeeWithProfile = Omit<AttendeeRow, "created_at"> & {
+        profiles: { full_name: string; email: string | null; avatar_url: string | null };
+    };
+
+    let attendees: AttendeeWithProfile[] = [];
+    const attendeeRows = (rawAttendees as unknown as AttendeeRow[] | null) ?? [];
+    if (attendeeRows.length > 0) {
+        const userIds = Array.from(new Set(attendeeRows.map((a) => a.user_id)));
 
         // 1) Try private profiles first (should work for super_admin / club_admin / analytics + after policy for volunteer)
         const { data: profilesData, error: profilesErr } = await supabase
@@ -92,7 +113,8 @@ export default async function CheckInPage({
         }
 
         const profileMap = new Map<string, ProfileRow>();
-        (profilesData ?? []).forEach((p) => profileMap.set(p.id, p as ProfileRow));
+        const privateProfileRows = (profilesData as unknown as ProfileRow[] | null) ?? [];
+        privateProfileRows.forEach((p) => profileMap.set(p.id, p));
 
         // 2) If some are missing, try public fallback for missing ones
         const missingIds = userIds.filter((id) => !profileMap.has(id));
@@ -108,7 +130,8 @@ export default async function CheckInPage({
             if (pubErr) {
                 console.error("Profiles_public fetch error:", pubErr);
             } else {
-                (pubProfiles ?? []).forEach((p: any) => {
+                const pubProfileRows = (pubProfiles as unknown as PublicProfileRow[] | null) ?? [];
+                pubProfileRows.forEach((p) => {
                     // Only fill missing
                     if (!profileMap.has(p.id)) {
                         profileMap.set(p.id, {
@@ -122,7 +145,7 @@ export default async function CheckInPage({
             }
         }
 
-        attendees = rawAttendees.map((a) => {
+        attendees = attendeeRows.map((a) => {
             const profile = profileMap.get(a.user_id);
             return {
                 id: a.id,

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { ChevronLeft, Plus, Pencil, Newspaper } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import DeleteClubButton from '@/components/admin/DeleteClubButton';
+import UnoptimizedImage from "@/components/UnoptimizedImage";
 
 export default async function ManageClubsPage() {
     console.log("ADMIN CLUBS PAGE LOADED");
@@ -117,11 +118,16 @@ export default async function ManageClubsPage() {
                             >
                                 <div className="flex items-center gap-4">
                                     {club.image_url ? (
-                                        <img
-                                            src={club.image_url}
-                                            alt={club.name}
-                                            className="w-16 h-16 object-cover rounded-lg"
-                                        />
+                                        <div className="relative w-16 h-16 rounded-lg overflow-hidden">
+                                            <UnoptimizedImage
+                                                src={club.image_url}
+                                                alt={club.name}
+                                                fill
+                                                className="object-cover"
+                                                sizes="64px"
+                                                unoptimized
+                                            />
+                                        </div>
                                     ) : (
                                         <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg" />
                                     )}

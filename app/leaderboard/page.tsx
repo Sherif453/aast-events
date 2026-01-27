@@ -16,6 +16,10 @@ interface LeaderboardUser {
     month_count: number;
 }
 
+type CheckedInAttendeeRow = { user_id: string; checked_in_at: string | null };
+type ProfileRow = { id: string; full_name: string | null; avatar_url: string | null; email?: string | null };
+type PrivacyRow = { user_id: string; hide_from_leaderboard: boolean | null };
+
 export default async function LeaderboardPage() {
     const supabase = await createClient();
 
@@ -51,9 +55,10 @@ export default async function LeaderboardPage() {
     // Count per user (total + this month)
     const userEventCounts = new Map<string, number>();
     const userMonthCounts = new Map<string, number>();
-    checkedInRows?.forEach((r) => {
+    const checkedRows = (checkedInRows as unknown as CheckedInAttendeeRow[] | null) ?? [];
+    checkedRows.forEach((r) => {
         userEventCounts.set(r.user_id, (userEventCounts.get(r.user_id) ?? 0) + 1);
-        const ts = (r as any).checked_in_at ? new Date((r as any).checked_in_at) : null;
+        const ts = r.checked_in_at ? new Date(r.checked_in_at) : null;
         if (ts && ts >= monthStart) {
             userMonthCounts.set(r.user_id, (userMonthCounts.get(r.user_id) ?? 0) + 1);
         }
@@ -78,8 +83,9 @@ export default async function LeaderboardPage() {
         console.error('Leaderboard profiles fetch error:', profilesErr);
     }
 
-    const profileMap = new Map<string, any>();
-    (profilesData ?? []).forEach((p: any) => profileMap.set(p.id, p));
+    const profileMap = new Map<string, ProfileRow>();
+    const profileRows = (profilesData as unknown as ProfileRow[] | null) ?? [];
+    profileRows.forEach((p) => profileMap.set(String(p.id), p));
 
     // Privacy: hide names/avatars from public leaderboards (non-super-admin viewers only).
     const { data: privacyRows, error: privacyErr } = userIds.length
@@ -93,8 +99,9 @@ export default async function LeaderboardPage() {
         console.error('Leaderboard privacy fetch error:', privacyErr);
     }
 
+    const privacyTyped = (privacyRows as unknown as PrivacyRow[] | null) ?? [];
     const hiddenFromLeaderboard = new Set<string>(
-        (privacyRows ?? []).filter((r: any) => r.hide_from_leaderboard).map((r: any) => String(r.user_id))
+        privacyTyped.filter((r) => Boolean(r.hide_from_leaderboard)).map((r) => String(r.user_id))
     );
 
     const leaderboard: LeaderboardUser[] = userIds

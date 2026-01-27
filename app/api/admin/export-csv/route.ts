@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { applyCors, applySecurityHeaders, preflight } from "@/lib/api/http";
 import { checkRateLimit, rateLimitResponse } from "@/lib/api/rateLimit";
-import { parseQuery, z, zUuid } from "@/lib/api/validation";
+import { parseQuery, z, zIdString } from "@/lib/api/validation";
 
 type AdminRole = 'super_admin' | 'club_admin' | 'event_volunteer' | 'read_only_analytics';
 
@@ -35,7 +35,7 @@ export async function GET(request: Request) {
 
     const querySchema = z
         .object({
-            eventId: z.string().transform((s) => s.trim()).pipe(zUuid).optional(),
+            eventId: zIdString.optional(),
             type: z.enum(["rsvps", "checked-in"]).optional(),
         })
         .strict();
@@ -209,9 +209,10 @@ export async function GET(request: Request) {
                 'Content-Disposition': `attachment; filename="attendees-${type}-${Date.now()}.csv"`,
             },
         }));
-    } catch (err: any) {
+    } catch (err: unknown) {
         console.error('CSV Export Error:', err);
-        return withHeaders(NextResponse.json({ error: err?.message || 'Export failed' }, { status: 500 }));
+        const message = err instanceof Error ? err.message : 'Export failed';
+        return withHeaders(NextResponse.json({ error: message || 'Export failed' }, { status: 500 }));
     }
 }
 

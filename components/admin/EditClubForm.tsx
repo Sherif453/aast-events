@@ -9,8 +9,16 @@ import { Label } from '@/components/ui/label';
 import { useRouter } from 'next/navigation';
 import { Save, X, Image as ImageIcon } from 'lucide-react';
 import Link from 'next/link';
+import Image from "next/image";
 
-export default function EditClubForm({ club, userId }: { club: any; userId: string }) {
+type ClubLike = {
+    id: string | number;
+    name?: string | null;
+    description?: string | null;
+    image_url?: string | null;
+};
+
+export default function EditClubForm({ club, userId }: { club: ClubLike; userId: string }) {
     void userId;
 
     const [formData, setFormData] = useState({
@@ -26,14 +34,21 @@ export default function EditClubForm({ club, userId }: { club: any; userId: stri
     const router = useRouter();
     const supabase = createClient();
 
-    const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
+	    const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+	        const file = e.target.files?.[0];
+	        if (!file) return;
 
-        if (!file.type.startsWith('image/')) {
-            alert('Please select an image file');
-            return;
-        }
+	        const allowedMime = new Set(['image/png', 'image/jpeg', 'image/webp']);
+	        const mime = String(file.type || '').toLowerCase();
+	        const ext = String(file.name.split('.').pop() || '').toLowerCase();
+	        const isAllowed =
+	            allowedMime.has(mime) ||
+	            (mime === '' && (ext === 'png' || ext === 'jpg' || ext === 'jpeg' || ext === 'webp'));
+
+	        if (!isAllowed) {
+	            alert('Please select a PNG, JPG, or WebP image');
+	            return;
+	        }
 
         if (file.size > 3 * 1024 * 1024) {
             alert('Logo must be less than 3MB');
@@ -82,12 +97,13 @@ export default function EditClubForm({ club, userId }: { club: any; userId: stri
 
             setUploadProgress(100);
             return publicUrl;
-        } catch (error: any) {
-            console.error('Logo upload error:', error);
-            alert(`Failed to upload logo: ${error.message}`);
-            return null;
-        }
-    };
+	        } catch (error: unknown) {
+	            console.error('Logo upload error:', error);
+	            const message = error instanceof Error ? error.message : 'Upload failed';
+	            alert(`Failed to upload logo: ${message}`);
+	            return null;
+	        }
+	    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -119,14 +135,15 @@ export default function EditClubForm({ club, userId }: { club: any; userId: stri
 
             router.push('/admin/clubs');
             router.refresh();
-        } catch (error: any) {
-            console.error('Update error:', error);
-            alert(`Failed to update club: ${error.message}`);
-        } finally {
-            setIsSubmitting(false);
-            setUploadProgress(0);
-        }
-    };
+	        } catch (error: unknown) {
+	            console.error('Update error:', error);
+	            const message = error instanceof Error ? error.message : 'Update failed';
+	            alert(`Failed to update club: ${message}`);
+	        } finally {
+	            setIsSubmitting(false);
+	            setUploadProgress(0);
+	        }
+	    };
 
     return (
         <form onSubmit={handleSubmit} className="bg-card rounded-xl shadow-sm border border-border p-6 space-y-6">
@@ -158,13 +175,16 @@ export default function EditClubForm({ club, userId }: { club: any; userId: stri
             <div>
                 <Label>Club Logo</Label>
                 <div className="mt-2 space-y-3">
-                    {logoPreview ? (
-                        <div className="relative">
-                            <img
-                                src={logoPreview}
-                                alt="Logo Preview"
-                                className="w-48 h-48 object-contain rounded-lg border border-border bg-muted mx-auto"
-                            />
+	                    {logoPreview ? (
+	                        <div className="relative">
+	                            <Image
+	                                src={logoPreview}
+	                                alt="Logo Preview"
+	                                width={192}
+	                                height={192}
+	                                className="w-48 h-48 object-contain rounded-lg border border-border bg-muted mx-auto"
+	                                unoptimized
+	                            />
                             <Button
                                 type="button"
                                 variant="destructive"
@@ -177,24 +197,24 @@ export default function EditClubForm({ club, userId }: { club: any; userId: stri
                         </div>
                     ) : (
                         <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-400 transition cursor-pointer">
-                            <input
-                                type="file"
-                                id="logo-upload"
-                                accept="image/*"
-                                onChange={handleLogoChange}
-                                className="hidden"
-                            />
+	                            <input
+	                                type="file"
+	                                id="logo-upload"
+	                                accept="image/png,image/jpeg,image/webp"
+	                                onChange={handleLogoChange}
+	                                className="hidden"
+	                            />
                             <label htmlFor="logo-upload" className="cursor-pointer flex flex-col items-center">
                                 <ImageIcon className="h-12 w-12 text-gray-400 mb-3" />
                                 <span className="text-sm font-medium text-gray-700">
                                     Click to upload logo
                                 </span>
-                                <span className="text-xs text-gray-500 mt-1">
-                                    PNG, JPG, SVG up to 3MB
-                                </span>
-                            </label>
-                        </div>
-                    )}
+	                                <span className="text-xs text-gray-500 mt-1">
+	                                    PNG, JPG, WebP up to 3MB
+	                                </span>
+	                            </label>
+	                        </div>
+	                    )}
 
                     {uploadProgress > 0 && uploadProgress < 100 && (
                         <div className="w-full bg-gray-200 rounded-full h-2">

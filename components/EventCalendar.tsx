@@ -103,9 +103,11 @@ export default function EventCalendar() {
     }, [supabase]);
 
     useEffect(() => {
-        if (userId) {
+        if (!userId) return;
+        const id = setTimeout(() => {
             void loadEvents();
-        }
+        }, 0);
+        return () => clearTimeout(id);
     }, [userId, loadEvents]);
 
     const exportToGoogleCalendar = (event: CalendarEvent) => {

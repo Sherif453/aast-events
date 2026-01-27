@@ -18,6 +18,7 @@ auth persistence, or causing random logouts.
 - App Router only (`app/`). No Pages Router.
 - Don’t introduce `_app.tsx`, `_document.tsx`, or Pages Router patterns.
 - Server Components by default. Add `"use client"` only when required.
+- Next.js 16 App Router: treat `searchParams` as **async** (`Promise`) when provided to Server Components; unwrap with `await` (or `React.use()`) before reading properties.
 - Avoid nested anchors/links (causes hydration issues):
   - `<Link><Link/></Link>`, `<a><a/></a>`, `<Link><a/></Link>`
 - Avoid nesting interactive elements inside links (a11y/hydration/click issues):
@@ -114,6 +115,15 @@ auth persistence, or causing random logouts.
 
 - Prefer raster image uploads (PNG/JPG/WebP) for user-provided logos/images unless SVG is sanitized end-to-end.
 - Keep `<input accept=...>` and runtime validation in sync to avoid allowing risky formats accidentally.
+- For user-provided remote image URLs in the UI, prefer `components/UnoptimizedImage.tsx` (Client wrapper around `next/image`) to avoid:
+  - Passing function props (e.g. `loader`) from Server Components to Client Components (runtime error)
+  - Needing permissive `next.config.ts` `images.remotePatterns` (can introduce SSRF/cost risks)
+
+### Lint/type safety (production readiness)
+
+- Do not introduce new lint/typecheck suppressions; fix types properly.
+- Avoid `any`; prefer real types or `unknown` + narrowing.
+- Avoid `<img>`; use `next/image` (with `components/UnoptimizedImage.tsx` for remote/dynamic URLs).
 
 ---
 

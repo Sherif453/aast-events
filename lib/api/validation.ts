@@ -23,6 +23,11 @@ export function isUuid(input: string) {
 
 export const zUuid = z.string().uuid();
 
+export const zIdString = z
+  .string()
+  .trim()
+  .refine((v) => zUuid.safeParse(v).success || /^[0-9]+$/.test(v), "invalid_id");
+
 export function zSafeText(opts: { min?: number; max: number }) {
   let inner = z.string();
   if (opts.min != null) inner = inner.min(opts.min);

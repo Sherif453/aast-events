@@ -8,6 +8,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Award, Megaphone, Newspaper, X } from 'lucide-react';
+import Image from "next/image";
+import { passthroughImageLoader } from "@/lib/nextImageLoader";
 
 interface PostNewsFormProps {
     clubId: string;
@@ -27,6 +29,7 @@ export default function PostNewsForm({ clubId, userId }: PostNewsFormProps) {
     const [imageUrl, setImageUrl] = useState('');
     const [imageFile, setImageFile] = useState<File | null>(null);
     const [localPreviewUrl, setLocalPreviewUrl] = useState<string>('');
+    const [hidePreview, setHidePreview] = useState(false);
 
     const [loading, setLoading] = useState(false);
 
@@ -69,11 +72,13 @@ export default function PostNewsForm({ clubId, userId }: PostNewsFormProps) {
 
         setImageFile(file);
         setImageUrl('');
+        setHidePreview(false);
     };
 
     const clearImage = () => {
         setImageFile(null);
         setImageUrl('');
+        setHidePreview(false);
     };
 
     const normalizeImageUrl = (raw: string): string | null => {
@@ -184,16 +189,17 @@ export default function PostNewsForm({ clubId, userId }: PostNewsFormProps) {
             alert('News posted successfully!');
             router.push('/admin/clubs');
             router.refresh();
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Error posting news:', error);
-            alert(`Failed to post news: ${error.message}`);
+            const message = error instanceof Error ? error.message : 'Post failed';
+            alert(`Failed to post news: ${message}`);
         } finally {
             setLoading(false);
         }
     };
 
     const previewSrc = localPreviewUrl || normalizeImageUrl(imageUrl) || '';
-    const showPreview = Boolean(previewSrc);
+    const showPreview = Boolean(previewSrc) && !hidePreview;
 
     return (
         <form onSubmit={handleSubmit} className="bg-card rounded-xl shadow-sm border border-border p-8 space-y-6">
@@ -302,18 +308,19 @@ export default function PostNewsForm({ clubId, userId }: PostNewsFormProps) {
                         </Label>
 
                         <div className="flex items-center gap-3">
-                            <Input
-                                id="imageUrl"
-                                type="url"
-                                value={imageUrl}
-                                onChange={(e) => {
-                                    const v = e.target.value;
-                                    setImageUrl(v);
-                                    if (v.trim()) setImageFile(null);
-                                }}
-                                placeholder="https://example.com/image.jpg"
-                                className="h-10"
-                            />
+	                            <Input
+	                                id="imageUrl"
+	                                type="url"
+	                                value={imageUrl}
+	                                onChange={(e) => {
+	                                    const v = e.target.value;
+	                                    setImageUrl(v);
+	                                    if (v.trim()) setImageFile(null);
+	                                    setHidePreview(false);
+	                                }}
+	                                placeholder="https://example.com/image.jpg"
+	                                className="h-10"
+	                            />
 
                             <div className="hidden md:block w-[108px]" />
                         </div>
@@ -322,18 +329,20 @@ export default function PostNewsForm({ clubId, userId }: PostNewsFormProps) {
                     </div>
                 </div>
 
-                {showPreview && (
-                    <div className="mt-2 border border-border rounded-lg overflow-hidden">
-                        <img
-                            src={previewSrc}
-                            alt="Preview"
-                            className="w-full h-48 object-cover"
-                            onError={(e) => {
-                                (e.target as HTMLImageElement).style.display = 'none';
-                            }}
-                        />
-                    </div>
-                )}
+	                {showPreview && (
+	                    <div className="mt-2 border border-border rounded-lg overflow-hidden">
+	                        <Image
+	                            src={previewSrc}
+	                            alt="Preview"
+	                            width={1200}
+	                            height={600}
+	                            className="w-full h-48 object-cover"
+	                            onError={() => setHidePreview(true)}
+	                            loader={passthroughImageLoader}
+	                            unoptimized
+	                        />
+	                    </div>
+	                )}
             </div>
 
             <div className="flex gap-3 pt-4">

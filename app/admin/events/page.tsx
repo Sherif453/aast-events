@@ -5,6 +5,19 @@ import { Plus, Calendar, Edit, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import DeleteEventButton from '@/components/admin/DeleteEventButton';
 
+type EventSummaryRow = {
+    event_id: string | number;
+    title: string;
+    start_time: string;
+    location: string;
+    campus: string;
+    club_id: string | null;
+    club_name: string | null;
+    total_rsvps: number | null;
+    total_checked_in: number | null;
+    conversion_rate: string | number | null;
+};
+
 export default async function ManageEventsPage() {
     const supabase = await createClient();
 
@@ -36,12 +49,16 @@ export default async function ManageEventsPage() {
 
     const events = (eventsRaw ?? [])
         .slice()
-        .sort((a: any, b: any) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime());
+        .sort((a: unknown, b: unknown) => {
+            const aa = a as EventSummaryRow;
+            const bb = b as EventSummaryRow;
+            return new Date(bb.start_time).getTime() - new Date(aa.start_time).getTime();
+        }) as EventSummaryRow[];
 
     // With RPC, club_id is always included
     const clubIdByEventId = new Map<number, string | null>();
     for (const e of events || []) {
-        clubIdByEventId.set(Number((e as any).event_id), (e as any).club_id ?? null);
+        clubIdByEventId.set(Number(e.event_id), e.club_id ?? null);
     }
 
     const isSuperAdmin = adminData.role === 'super_admin';
@@ -85,11 +102,11 @@ export default async function ManageEventsPage() {
                             </Button>
                         </Link>
                     </div>
-                ) : (
-                    <div className="space-y-4">
-                        {events.map((event: any) => {
-                            const eventId = Number(event.event_id);
-                            const eventClubId = clubIdByEventId.get(eventId) ?? null;
+	                ) : (
+	                    <div className="space-y-4">
+	                        {events.map((event: EventSummaryRow) => {
+	                            const eventId = Number(event.event_id);
+	                            const eventClubId = clubIdByEventId.get(eventId) ?? null;
 
                             const canDeleteThisEvent =
                                 isSuperAdmin || (isClubAdmin && !!myClubId && !!eventClubId && eventClubId === myClubId);
@@ -135,24 +152,24 @@ export default async function ManageEventsPage() {
                                             </div>
                                         </div>
 
-                                        <div className="flex gap-2">
-                                            <Link href={`/event/${event.event_id}`}>
-                                                <Button variant="outline" size="sm">
-                                                    <Eye className="h-4 w-4" />
-                                                </Button>
-                                            </Link>
-                                            <Link href={`/admin/events/edit/${event.event_id}`}>
-                                                <Button variant="outline" size="sm">
-                                                    <Edit className="h-4 w-4" />
-                                                </Button>
-                                            </Link>
+	                                        <div className="flex gap-2">
+	                                            <Link href={`/event/${event.event_id}`}>
+	                                                <Button variant="outline" size="sm">
+	                                                    <Eye className="h-4 w-4" />
+	                                                </Button>
+	                                            </Link>
+	                                            <Link href={`/admin/events/edit/${event.event_id}`}>
+	                                                <Button variant="outline" size="sm">
+	                                                    <Edit className="h-4 w-4" />
+	                                                </Button>
+	                                            </Link>
 
-                                            <DeleteEventButton
-                                                eventId={event.event_id.toString()}
-                                                eventTitle={event.title}
-                                                enabled={canDeleteThisEvent}
-                                            />
-                                        </div>
+	                                            <DeleteEventButton
+	                                                eventId={event.event_id.toString()}
+	                                                eventTitle={event.title}
+	                                                enabled={canDeleteThisEvent}
+	                                            />
+	                                        </div>
                                     </div>
                                 </div>
                             );

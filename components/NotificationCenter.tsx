@@ -135,10 +135,17 @@ export default function NotificationCenter() {
           .abortSignal(controller.signal);
 
         if (error) {
-          const msg = String((error as any)?.message || '').toLowerCase();
-          const code = String((error as any)?.code || '').toLowerCase();
-          const details = typeof (error as any)?.details === 'string' ? (error as any).details : '';
-          const hint = typeof (error as any)?.hint === 'string' ? (error as any).hint : '';
+          const errObj = error as unknown as {
+            message?: unknown;
+            code?: unknown;
+            details?: unknown;
+            hint?: unknown;
+          };
+
+          const msg = String(errObj.message ?? '').toLowerCase();
+          const code = String(errObj.code ?? '').toLowerCase();
+          const details = typeof errObj.details === 'string' ? errObj.details : '';
+          const hint = typeof errObj.hint === 'string' ? errObj.hint : '';
           const aborted = controller.signal.aborted;
 
           const isEmptyError = !!error && !msg && !code && !details && !hint;
@@ -158,10 +165,10 @@ export default function NotificationCenter() {
 
           if (!isTransient) {
             console.error('Failed to load notifications:', error, {
-              message: (error as any)?.message,
+              message: errObj.message,
               details,
               hint,
-              code: (error as any)?.code,
+              code: errObj.code,
             });
           }
           return;
@@ -174,9 +181,9 @@ export default function NotificationCenter() {
         const list = (data as Notification[]) || [];
         setNotifications(list);
         setUnreadCount(list.filter((n) => !n.read).length);
-      } catch (err: any) {
-        const name = String(err?.name || '');
-        const msg = String(err?.message || '').toLowerCase();
+      } catch (err: unknown) {
+        const name = err instanceof Error ? err.name : String((err as { name?: unknown } | null)?.name ?? '');
+        const msg = err instanceof Error ? err.message.toLowerCase() : String((err as { message?: unknown } | null)?.message ?? '').toLowerCase();
 
         const isTransient =
           name === 'AbortError' ||

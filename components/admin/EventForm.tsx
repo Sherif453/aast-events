@@ -9,19 +9,46 @@ import { Label } from '@/components/ui/label';
 import { useRouter } from 'next/navigation';
 import { Loader2, Save, X, Image as ImageIcon } from 'lucide-react';
 import Link from 'next/link';
+import Image from "next/image";
+import { passthroughImageLoader } from "@/lib/nextImageLoader";
+import type { PostgrestError, PostgrestSingleResponse } from "@supabase/supabase-js";
 
 type AdminRole = 'super_admin' | 'club_admin' | 'event_volunteer';
 
-interface EventFormProps {
-  mode: 'create' | 'edit';
-  clubs: { id: string; name: string }[];
-  userId: string;
-  role: AdminRole;
-  adminClubId: string | null;
-  initialData?: any;
-}
+type EventInitialData = {
+  id: string | number;
+  title?: string | null;
+  description?: string | null;
+  location?: string | null;
+  campus?: string | null;
+  organizer_name?: string | null;
+  start_time?: string | null;
+  image_url?: string | null;
+  image_file?: string | null;
+  club_id?: string | null;
+};
 
-type PostgrestRes<T> = { data: T; error: any };
+type EventFormProps =
+  | {
+      mode: 'create';
+      clubs: { id: string; name: string }[];
+      userId: string;
+      role: AdminRole;
+      adminClubId: string | null;
+      initialData?: undefined;
+    }
+  | {
+      mode: 'edit';
+      clubs: { id: string; name: string }[];
+      userId: string;
+      role: AdminRole;
+      adminClubId: string | null;
+      initialData: EventInitialData;
+    };
+
+type PostgrestBuilderLike<T> = PromiseLike<PostgrestSingleResponse<T>> & {
+  abortSignal?: (signal: AbortSignal) => PostgrestBuilderLike<T>;
+};
 
 type PendingAttachJob = {
   eventId: string | number;
@@ -98,15 +125,16 @@ export default function EventForm({ mode, clubs, userId, role, adminClubId, init
 
   //  PostgREST timeboxed calls (never hang forever) 
   const postgrestWithTimeout = useCallback(
-    async <T,>(builder: any, ms: number, label: string): Promise<PostgrestRes<T>> => {
+    async <T,>(builder: PostgrestBuilderLike<T>, ms: number, label: string): Promise<PostgrestSingleResponse<T>> => {
       const controller = new AbortController();
       const t = setTimeout(() => controller.abort(), ms);
 
       try {
-        const res = await (typeof builder?.abortSignal === 'function' ? builder.abortSignal(controller.signal) : builder);
-        return res as PostgrestRes<T>;
-      } catch (err: any) {
-        if (err?.name === 'AbortError') throw new Error(label);
+        const res = await (typeof builder.abortSignal === 'function' ? builder.abortSignal(controller.signal) : builder);
+        return res;
+      } catch (err: unknown) {
+        const name = err instanceof Error ? err.name : String((err as { name?: unknown } | null)?.name ?? '');
+        if (name === 'AbortError') throw new Error(label);
         throw err;
       } finally {
         clearTimeout(t);
@@ -307,7 +335,7 @@ export default function EventForm({ mode, clubs, userId, role, adminClubId, init
   const attachImageToEvent = useCallback(
     async (eventId: string | number, url: string) => {
       const { error } = await postgrestWithTimeout<null>(
-        supabase.from('events').update({ image_url: url, image_file: url }).eq('id', eventId as any),
+        supabase.from('events').update({ image_url: url, image_file: url }).eq('id', eventId),
         12_000,
         'event_image_update_timeout'
       );
@@ -340,8 +368,10 @@ export default function EventForm({ mode, clubs, userId, role, adminClubId, init
   const notifyClubFollowers = useCallback(
     async (eventId: string | number) => {
       try {
-        const { error } = await postgrestWithTimeout<any>(
-          supabase.rpc('notify_followers_new_event', { p_event_id: eventId as any }),
+        const p_event_id =
+          typeof eventId === 'number' ? eventId : /^[0-9]+$/.test(eventId) ? Number(eventId) : eventId;
+        const { error } = await postgrestWithTimeout<unknown>(
+          supabase.rpc('notify_followers_new_event', { p_event_id }),
           8000,
           'notify_followers_timeout'
         );
@@ -365,7 +395,7 @@ export default function EventForm({ mode, clubs, userId, role, adminClubId, init
   //  CREATE idempotent flow 
   const recoverCreatedEventId = useCallback(
     async (clientRequestId: string) => {
-      const { data, error } = await postgrestWithTimeout<{ id: number }>(
+      const { data, error } = await postgrestWithTimeout<{ id: number } | null>(
         supabase.from('events').select('id').eq('client_request_id', clientRequestId).maybeSingle(),
         10_000,
         'event_recover_timeout'
@@ -377,7 +407,7 @@ export default function EventForm({ mode, clubs, userId, role, adminClubId, init
     [postgrestWithTimeout, supabase]
   );
 
-  const handleSubmit = async (e: React.FormEvent) => {
+	  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
     setIsSubmitting(true);
@@ -412,27 +442,44 @@ export default function EventForm({ mode, clubs, userId, role, adminClubId, init
       let finalImageUrl: string | null = hasFile ? null : typedImageUrl;
       let uploadTimedOut = false;
 
-      if (uploadPromise) {
-        try {
-          finalImageUrl = await withSoftTimeout(uploadPromise, 15_000, 'image_upload_timeout');
-        } catch (err: any) {
-          const label = String(err?.message || '');
-          if (label === 'image_upload_timeout') {
-            uploadTimedOut = true;
-            finalImageUrl = null;
-          } else {
-            throw new Error(`Image upload failed: ${err?.message || 'Unknown error'}`);
-          }
-        }
-      }
+	      if (uploadPromise) {
+	        try {
+	          finalImageUrl = await withSoftTimeout(uploadPromise, 15_000, 'image_upload_timeout');
+	        } catch (err: unknown) {
+	          const label = err instanceof Error ? err.message : String((err as { message?: unknown } | null)?.message ?? '');
+	          if (label === 'image_upload_timeout') {
+	            uploadTimedOut = true;
+	            finalImageUrl = null;
+	          } else {
+	            const message = err instanceof Error ? err.message : 'Unknown error';
+	            throw new Error(`Image upload failed: ${message}`);
+	          }
+	        }
+	      }
 
-      const baseEventData: any = {
-        ...formData,
-        start_time: startTimeIso,
-        image_url: finalImageUrl,
-        image_file: finalImageUrl,
-        club_id: formData.club_id || null,
-      };
+	      type EventUpsertBase = {
+	        title: string;
+	        description: string;
+	        location: string;
+	        campus: string;
+	        organizer_name: string;
+	        start_time: string;
+	        image_url: string | null;
+	        image_file: string | null;
+	        club_id: string | null;
+	      };
+
+	      const baseEventData: EventUpsertBase = {
+	        title: formData.title,
+	        description: formData.description,
+	        location: formData.location,
+	        campus: formData.campus,
+	        organizer_name: formData.organizer_name,
+	        start_time: startTimeIso,
+	        image_url: finalImageUrl,
+	        image_file: finalImageUrl,
+	        club_id: formData.club_id || null,
+	      };
 
       let savedEventId: string | number | null = null;
 
@@ -446,28 +493,29 @@ export default function EventForm({ mode, clubs, userId, role, adminClubId, init
         };
 
         // STRICT idempotency: retry never mutates existing row
-        // Step 1: insert-only upsert
-        let maybeReturnedId: number | null = null;
-        let upsertError: any = null;
-        try {
-          const { data, error } = await postgrestWithTimeout<{ id: number }>(
-            supabase
-              .from('events')
-              .upsert([payload], { onConflict: 'client_request_id', ignoreDuplicates: true })
-              .select('id')
-              .maybeSingle(),
+	        // Step 1: insert-only upsert
+	        let maybeReturnedId: number | null = null;
+	        let upsertError: PostgrestError | null = null;
+	        try {
+	          const { data, error } = await postgrestWithTimeout<{ id: number } | null>(
+	            supabase
+	              .from('events')
+	              .upsert([payload], { onConflict: 'client_request_id', ignoreDuplicates: true })
+	              .select('id')
+	              .maybeSingle(),
             12_000,
             'event_create_timeout'
-          );
-          if (error) upsertError = error;
-          maybeReturnedId = data?.id ?? null;
-        } catch (err: any) {
-          if (String(err?.message || '') === 'event_create_timeout') {
-            // write may have succeeded -> recover below
-          } else {
-            throw err;
-          }
-        }
+	          );
+	          if (error) upsertError = error;
+	          maybeReturnedId = data?.id ?? null;
+	        } catch (err: unknown) {
+	          const msg = err instanceof Error ? err.message : String((err as { message?: unknown } | null)?.message ?? '');
+	          if (msg === 'event_create_timeout') {
+	            // write may have succeeded -> recover below
+	          } else {
+	            throw err;
+	          }
+	        }
 
         // Step 2: recover id if it wasn't returned (works for both created or duplicate)
         savedEventId = maybeReturnedId ?? (await recoverCreatedEventId(clientRequestId));
@@ -489,38 +537,39 @@ export default function EventForm({ mode, clubs, userId, role, adminClubId, init
       }
 
       // If upload finished after timeout, attach later and persist job for reliability.
-      if (savedEventId && uploadTimedOut && uploadPromise) {
-        void uploadPromise
-          .then(async (url) => {
-            try {
-              await attachImageToEvent(savedEventId as any, url);
-            } catch {
-              enqueuePendingAttach({ eventId: savedEventId as any, url, createdAt: Date.now(), attempts: 1 });
-            }
-          })
-          .catch((err) => {
-            console.warn('Background image upload failed (non-critical):', err);
-          });
-      }
+	      if (savedEventId && uploadTimedOut && uploadPromise) {
+	        void uploadPromise
+	          .then(async (url) => {
+	            try {
+	              await attachImageToEvent(savedEventId, url);
+	            } catch {
+	              enqueuePendingAttach({ eventId: savedEventId, url, createdAt: Date.now(), attempts: 1 });
+	            }
+	          })
+	          .catch((err) => {
+	            console.warn('Background image upload failed (non-critical):', err);
+	          });
+	      }
 
-      router.push('/admin/events');
-      router.refresh();
-    } catch (error: any) {
-      const msg = String(error?.message || '');
-      const isTimeout =
-        msg === 'event_create_timeout' ||
-        msg === 'event_update_timeout' ||
-        msg === 'event_image_update_timeout' ||
+	      router.push('/admin/events');
+	      router.refresh();
+	    } catch (error: unknown) {
+	      const errObj = error && typeof error === 'object' ? (error as Record<string, unknown>) : null;
+	      const msg = error instanceof Error ? error.message : String(errObj?.message ?? '');
+	      const isTimeout =
+	        msg === 'event_create_timeout' ||
+	        msg === 'event_update_timeout' ||
+	        msg === 'event_image_update_timeout' ||
         msg === 'image_upload_timeout' ||
         msg === 'event_recover_timeout';
 
-      console.error('Submit error details:', {
-        message: error?.message,
-        code: error?.code,
-        details: error?.details,
-        hint: error?.hint,
-        fullError: error,
-      });
+	      console.error('Submit error details:', {
+	        message: msg,
+	        code: errObj?.code,
+	        details: errObj?.details,
+	        hint: errObj?.hint,
+	        fullError: error,
+	      });
 
       alert(isTimeout ? humanizeTimeout(msg) : `Failed to ${mode} event: ${msg || 'Unknown error occurred'}`);
     } finally {
@@ -561,14 +610,22 @@ export default function EventForm({ mode, clubs, userId, role, adminClubId, init
         <div className="md:col-span-2">
           <Label>Event Image</Label>
           <div className="mt-2 space-y-3">
-            {imagePreview ? (
-              <div className="relative">
-                <img src={imagePreview} alt="Preview" className="w-full h-64 object-cover rounded-lg border border-border" />
-                <Button type="button" variant="destructive" size="sm" className="absolute top-2 right-2" onClick={removeImage}>
-                  <X className="h-4 w-4 mr-1" />
-                  Remove
-                </Button>
-              </div>
+	            {imagePreview ? (
+	              <div className="relative">
+	                <Image
+	                  src={imagePreview}
+	                  alt="Preview"
+	                  width={1200}
+	                  height={600}
+	                  className="w-full h-64 object-cover rounded-lg border border-border"
+	                  loader={passthroughImageLoader}
+	                  unoptimized
+	                />
+	                <Button type="button" variant="destructive" size="sm" className="absolute top-2 right-2" onClick={removeImage}>
+	                  <X className="h-4 w-4 mr-1" />
+	                  Remove
+	                </Button>
+	              </div>
             ) : (
 	              <div className="border-2 border-dashed border-border rounded-lg p-8 text-center hover:border-primary/50 transition cursor-pointer">
 	                <input type="file" id="image-upload" accept="image/png,image/jpeg,image/webp" onChange={handleImageChange} className="hidden" />

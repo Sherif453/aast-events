@@ -47,7 +47,7 @@ export default function CheckInInterface({
     const isCheckInLocked = useMemo(() => {
         const start = new Date(eventStartTime).getTime();
         const lockAt = start + 24 * 60 * 60 * 1000;
-        return Date.now() >= lockAt;
+        return new Date().getTime() >= lockAt;
     }, [eventStartTime]);
 
     const handleCheckIn = async (attendeeId: string, currentStatus: boolean) => {

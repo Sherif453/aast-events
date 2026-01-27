@@ -30,6 +30,7 @@ import EventCalendar from "@/components/EventCalendar";
 import { badgeToneClass, computeBadges, type Badge } from "@/lib/badges";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { BadgeIcon } from "@/lib/badge-icons";
+import UnoptimizedImage from "@/components/UnoptimizedImage";
 
 type ProfileRow = {
     full_name: string | null;
@@ -244,7 +245,10 @@ export default function ProfileClient() {
             try {
                 const identitiesPromise = supabase.auth.getUserIdentities();
                 const result = await withTimeout(identitiesPromise, 5000, "identities_timeout");
-                const { data, error } = result as any;
+                const { data, error } = result as unknown as {
+                    data: { identities: UserIdentity[] } | null;
+                    error: { message?: unknown } | null;
+                };
                 if (error) throw error;
 
                 if (!mountedRef.current || myReq !== identitiesReqIdRef.current) return false;
@@ -255,9 +259,10 @@ export default function ProfileClient() {
                 });
 
                 return true;
-            } catch (e: any) {
+            } catch (e: unknown) {
                 //  Key change: DO NOT setIdentities([]) here (that causes the "unlink becomes link" bug)
-                if (e?.message !== "identities_timeout") {
+                const msg = e instanceof Error ? e.message : String((e as { message?: unknown } | null)?.message ?? "");
+                if (msg !== "identities_timeout") {
                     console.error("[safeLoadIdentities]", e);
                 }
                 if (!mountedRef.current || myReq !== identitiesReqIdRef.current) return false;
@@ -280,7 +285,7 @@ export default function ProfileClient() {
         safeSet(() => setOtpCooldown(remaining > 0 ? remaining : 0));
     }, [safeSet]);
 
-    const logAudit = async (action: string, meta?: Record<string, any>) => {
+    const logAudit = async (action: string, meta?: Record<string, unknown>) => {
         if (!user?.id) return;
         try {
             const { error } = await supabase.from("auth_audit_logs").insert({
@@ -313,7 +318,7 @@ export default function ProfileClient() {
                     "profile_timeout"
                 );
 
-                const { data, error } = profileResult as any;
+                const { data, error } = profileResult as unknown as { data: ProfileRow | null; error: unknown | null };
                 if (error) console.error("[refreshUserAndProfile]", error);
 
                 const profile = data ?? null;
@@ -337,10 +342,11 @@ export default function ProfileClient() {
                 await safeLoadIdentities({ force: true });
 
                 restoreOtpCooldown(userId);
-            } catch (e: any) {
+            } catch (e: unknown) {
                 // Timeouts can happen during slow network / token rotation; don't show scary dev overlay
-                if (e?.message === "getUser_timeout" || e?.message === "profile_timeout") {
-                    console.warn("[refreshUserAndProfile timeout]", e?.message);
+                const msg = e instanceof Error ? e.message : String((e as { message?: unknown } | null)?.message ?? "");
+                if (msg === "getUser_timeout" || msg === "profile_timeout") {
+                    console.warn("[refreshUserAndProfile timeout]", msg);
                     return;
                 }
                 console.error("[refreshUserAndProfile exception]", e);
@@ -393,15 +399,17 @@ export default function ProfileClient() {
 
                     // Sync profiles.email immediately (fast) so Header/Profile show email without waiting.
                     const syncRes = await fetch("/api/auth/sync-profile", { method: "POST" });
-                    const syncJson = syncRes.ok ? ((await syncRes.json().catch(() => null)) as any) : null;
-                    if (syncJson?.email) {
+                    const syncJson: unknown = syncRes.ok ? await syncRes.json().catch(() => null) : null;
+                    const syncObj = syncJson && typeof syncJson === "object" ? (syncJson as Record<string, unknown>) : null;
+                    const syncedEmail = typeof syncObj?.email === "string" ? syncObj.email : null;
+                    if (syncedEmail) {
                         safeSet(() =>
                             setProfileRow((prev) => ({
                                 full_name: prev?.full_name ?? null,
                                 major: prev?.major ?? null,
                                 year: prev?.year ?? null,
                                 avatar_url: prev?.avatar_url ?? null,
-                                email: String(syncJson.email),
+                                email: syncedEmail,
                             }))
                         );
                     }
@@ -506,8 +514,9 @@ export default function ProfileClient() {
                             safeSet(() => setUser(verified.user));
                             restoreOtpCooldown(verified.user.id);
                         }
-                    } catch (e: any) {
-                        if (e?.message === "getUser_timeout") {
+                    } catch (e: unknown) {
+                        const msg = e instanceof Error ? e.message : String((e as { message?: unknown } | null)?.message ?? "");
+                        if (msg === "getUser_timeout") {
                             console.warn("[Profile load] getUser timeout (keeping session user)");
                         } else {
                             console.warn("[Profile load] getUser failed (keeping session user)", e);
@@ -533,7 +542,7 @@ export default function ProfileClient() {
                             "profile_timeout"
                         );
 
-                        const { data, error } = profileResult as any;
+                        const { data, error } = profileResult as unknown as { data: ProfileRow | null; error: unknown | null };
                         if (error) throw error;
 
                         const row: ProfileRow | null = data ?? null;
@@ -598,8 +607,12 @@ export default function ProfileClient() {
                             const nextPrivacy =
                                 privacyRes.status === "fulfilled" && !privacyRes.value.error
                                     ? {
-                                        hide_from_leaderboard: Boolean((privacyRes.value.data as any)?.hide_from_leaderboard),
-                                        anonymous_polls: Boolean((privacyRes.value.data as any)?.anonymous_polls),
+                                        hide_from_leaderboard: Boolean(
+                                            (privacyRes.value.data as unknown as { hide_from_leaderboard?: unknown } | null)?.hide_from_leaderboard
+                                        ),
+                                        anonymous_polls: Boolean(
+                                            (privacyRes.value.data as unknown as { anonymous_polls?: unknown } | null)?.anonymous_polls
+                                        ),
                                     }
                                     : null;
 
@@ -660,7 +673,7 @@ export default function ProfileClient() {
                         id: user.id,
                         ...nextRow,
                         updated_at: new Date().toISOString(),
-                    } as any,
+                    },
                     { onConflict: "id" }
                 );
 
@@ -668,9 +681,9 @@ export default function ProfileClient() {
 
             safeSet(() => {
                 setProfileRow((prev) => ({
-                    full_name: (nextRow.full_name as any) ?? prev?.full_name ?? null,
-                    major: (nextRow.major as any) ?? prev?.major ?? null,
-                    year: (nextRow.year as any) ?? prev?.year ?? null,
+                    full_name: nextRow.full_name ?? prev?.full_name ?? null,
+                    major: nextRow.major ?? prev?.major ?? null,
+                    year: nextRow.year ?? prev?.year ?? null,
                     email: prev?.email ?? null,
                     avatar_url: prev?.avatar_url ?? null,
                 }));
@@ -682,9 +695,10 @@ export default function ProfileClient() {
             } catch { }
             safeSet(() => setBanner({ type: "success", text: "Profile updated successfully!" }));
             window.dispatchEvent(new Event("aast-profile-changed"));
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error("[Update error]", error);
-            safeSet(() => setBanner({ type: "error", text: `Failed to update profile: ${error.message}` }));
+            const message = error instanceof Error ? error.message : "Update failed";
+            safeSet(() => setBanner({ type: "error", text: `Failed to update profile: ${message}` }));
         } finally {
             safeSet(() => setIsSaving(false));
         }
@@ -718,12 +732,13 @@ export default function ProfileClient() {
                 options: {
                     redirectTo: cb.toString(),
                     queryParams: { prompt: "select_account" },
-                } as any,
+                },
             });
             if (error) throw error;
-        } catch (e: any) {
+        } catch (e: unknown) {
             safeSet(() => {
-                setBanner({ type: "error", text: `Failed to link Google: ${e?.message || "Unknown error"}` });
+                const message = e instanceof Error ? e.message : "Unknown error";
+                setBanner({ type: "error", text: `Failed to link Google: ${message}` });
                 setLinkLoading(false);
             });
         }
@@ -795,8 +810,9 @@ export default function ProfileClient() {
 
             safeSet(() => setBanner({ type: "success", text: "Google unlinked successfully." }));
             window.dispatchEvent(new Event("aast-profile-changed"));
-        } catch (e: any) {
-            safeSet(() => setBanner({ type: "error", text: `Failed to unlink Google: ${e?.message || "Unknown error"}` }));
+        } catch (e: unknown) {
+            const message = e instanceof Error ? e.message : "Unknown error";
+            safeSet(() => setBanner({ type: "error", text: `Failed to unlink Google: ${message}` }));
         } finally {
             safeSet(() => setLinkLoading(false));
         }
@@ -840,9 +856,13 @@ export default function ProfileClient() {
             });
 
             if (error) {
-                const anyErr: any = error;
-                const status = anyErr?.context?.status;
-                const remaining = anyErr?.context?.body?.remaining_seconds;
+                const anyErr = error as unknown as {
+                    message?: unknown;
+                    context?: { status?: unknown; body?: unknown };
+                };
+                const status = typeof anyErr.context?.status === "number" ? anyErr.context.status : null;
+                const body = anyErr.context?.body && typeof anyErr.context.body === "object" ? (anyErr.context.body as Record<string, unknown>) : null;
+                const remaining = typeof body?.remaining_seconds === "number" ? body.remaining_seconds : null;
 
                 if (status === 429 && typeof remaining === "number") {
                     safeSet(() => {
@@ -852,7 +872,7 @@ export default function ProfileClient() {
                     return;
                 }
 
-                throw new Error(anyErr?.message || "Failed to send OTP");
+                throw new Error(typeof anyErr.message === "string" ? anyErr.message : "Failed to send OTP");
             }
 
             if (!data?.ok) throw new Error("Failed to send OTP");
@@ -868,8 +888,9 @@ export default function ProfileClient() {
             }
             safeSet(() => setOtpCooldown(OTP_COOLDOWN_SECONDS));
             safeSet(() => setBanner({ type: "success", text: "OTP sent. Enter the code to confirm your phone number." }));
-        } catch (e: any) {
-            safeSet(() => setBanner({ type: "error", text: `Failed to send OTP: ${e.message}` }));
+        } catch (e: unknown) {
+            const message = e instanceof Error ? e.message : "Send OTP failed";
+            safeSet(() => setBanner({ type: "error", text: `Failed to send OTP: ${message}` }));
         } finally {
             safeSet(() => {
                 setLinkLoading(false);
@@ -907,8 +928,9 @@ export default function ProfileClient() {
 
             safeSet(() => setBanner({ type: "success", text: "Phone verified and linked successfully!" }));
             window.dispatchEvent(new Event("aast-profile-changed"));
-        } catch (e: any) {
-            safeSet(() => setBanner({ type: "error", text: `OTP verification failed: ${e.message}` }));
+        } catch (e: unknown) {
+            const message = e instanceof Error ? e.message : "OTP verification failed";
+            safeSet(() => setBanner({ type: "error", text: `OTP verification failed: ${message}` }));
         } finally {
             safeSet(() => setLinkLoading(false));
         }
@@ -976,9 +998,9 @@ export default function ProfileClient() {
                 5000,
                 "privacy_timeout"
             );
-            const { error } = res as any;
-            if (error) throw error;
-        } catch (e: any) {
+            const err = (res as unknown as { error?: unknown } | null)?.error ?? null;
+            if (err) throw err;
+        } catch (e: unknown) {
             console.error("[Privacy] update failed:", e);
             setBanner({ type: "error", text: "Failed to update privacy settings. Please try again." });
         } finally {
@@ -1094,13 +1116,21 @@ export default function ProfileClient() {
                 )}
 
                 <div className="bg-card rounded-2xl shadow-lg border border-border p-6 flex flex-col items-center text-center">
-                    <div className="h-24 w-24 rounded-full overflow-hidden border-4 border-primary/20 shadow-lg mb-4 bg-primary flex items-center justify-center text-primary-foreground text-2xl font-bold">
-                        {avatarUrl ? (
-                            <img src={avatarUrl} alt="Profile" className="h-full w-full object-cover" />
-                        ) : (
-                            <span>{initials}</span>
-                        )}
-                    </div>
+                        <div className="h-24 w-24 rounded-full overflow-hidden border-4 border-primary/20 shadow-lg mb-4 bg-primary flex items-center justify-center text-primary-foreground text-2xl font-bold">
+                            {avatarUrl ? (
+                            <UnoptimizedImage
+                                src={avatarUrl}
+                                alt="Profile"
+                                width={96}
+                                height={96}
+                                className="h-full w-full object-cover"
+                                sizes="96px"
+                                unoptimized
+                            />
+                            ) : (
+                                <span>{initials}</span>
+                            )}
+                        </div>
 
                     {!isEditing ? (
                         <>

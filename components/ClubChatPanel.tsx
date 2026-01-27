@@ -98,8 +98,8 @@ function PollCard({
       supabase.from('club_poll_options').select('id, poll_id, option_text').eq('poll_id', pollId).order('created_at', { ascending: true }),
     ]);
 
-    if (!pollQ.error) setPoll(pollQ.data as any);
-    if (!optQ.error) setOptions((optQ.data as any[]) ?? []);
+    if (!pollQ.error) setPoll((pollQ.data as unknown as PollRow | null) ?? null);
+    if (!optQ.error) setOptions((optQ.data as unknown as PollOptionRow[] | null) ?? []);
 
     if (userId) {
       const votesQ = await supabase
@@ -107,13 +107,17 @@ function PollCard({
         .select('option_id')
         .eq('poll_id', pollId)
         .eq('user_id', userId);
-      if (!votesQ.error) setMyVotes(new Set(((votesQ.data as any[]) ?? []).map((r) => String(r.option_id))));
+      type VoteRow = { option_id: string | number };
+      const voteRows = (votesQ.data as unknown as VoteRow[] | null) ?? [];
+      if (!votesQ.error) setMyVotes(new Set(voteRows.map((r) => String(r.option_id))));
     }
 
     const resultsQ = await supabase.rpc('get_club_poll_results', { p_poll_id: pollId });
     if (!resultsQ.error) {
+      type PollResultRpcRow = { option_id: string | number; option_text: string | null; vote_count: number | null };
+      const rpcRows = (resultsQ.data as unknown as PollResultRpcRow[] | null) ?? [];
       setResults(
-        (((resultsQ.data as any[]) ?? []) as any[]).map((r) => ({
+        rpcRows.map((r) => ({
           option_id: String(r.option_id),
           option_text: String(r.option_text),
           vote_count: Number(r.vote_count ?? 0),
@@ -388,11 +392,14 @@ export default function ClubChatPanel({
       if (myReq !== reqIdRef.current) return;
 
       if (res.error) {
-        const msg = (res.error as any)?.message || 'Failed to load chat';
+        const msg =
+          typeof (res.error as unknown as { message?: unknown } | null)?.message === 'string'
+            ? String((res.error as unknown as { message?: unknown } | null)?.message)
+            : 'Failed to load chat';
         setThreadsError(msg);
         setThreads([]);
       } else {
-        setThreads((res.data as any[]) ?? []);
+        setThreads((res.data as unknown as ThreadRow[] | null) ?? []);
       }
     } finally {
       if (myReq === reqIdRef.current) setThreadsLoading(false);
@@ -415,7 +422,7 @@ export default function ClubChatPanel({
           return;
         }
 
-        const rows = ((res.data as any[]) ?? []) as PostRow[];
+        const rows = (res.data as unknown as PostRow[] | null) ?? [];
         setPosts(rows);
 
         const userIds = Array.from(new Set(rows.map((p) => p.user_id)));
@@ -423,12 +430,9 @@ export default function ClubChatPanel({
           const prof = await supabase.from('profiles_public').select('id, full_name, avatar_url').in('id', userIds);
           if (!prof.error) {
             const map = new Map<string, PublicProfile>();
-            for (const p of (prof.data as any[]) ?? []) {
-              map.set(String(p.id), {
-                id: String(p.id),
-                full_name: p.full_name ?? null,
-                avatar_url: p.avatar_url ?? null,
-              });
+            const profileRows = (prof.data as unknown as PublicProfile[] | null) ?? [];
+            for (const p of profileRows) {
+              map.set(String(p.id), { id: String(p.id), full_name: p.full_name ?? null, avatar_url: p.avatar_url ?? null });
             }
             setProfileMap(map);
           }
@@ -494,9 +498,11 @@ export default function ClubChatPanel({
         .single();
       if (threadErr) throw threadErr;
 
+      const threadRow = thread as unknown as ThreadRow;
+      const threadId = String(threadRow.id);
       const { error: postErr } = await supabase.from('club_thread_posts').insert({
         club_id: clubId,
-        thread_id: (thread as any).id,
+        thread_id: threadId,
         user_id: userId,
         type: 'message',
         content: body,
@@ -506,8 +512,8 @@ export default function ClubChatPanel({
       setNewThreadTitle('');
       setNewThreadBody('');
       await loadThreads();
-      setActiveThreadId(String((thread as any).id));
-      await loadPosts(String((thread as any).id));
+      setActiveThreadId(threadId);
+      await loadPosts(threadId);
     } catch (e) {
       console.error('[Chat] createThread failed:', e);
     } finally {
@@ -608,7 +614,8 @@ export default function ClubChatPanel({
         .single();
       if (pollErr) throw pollErr;
 
-      const pollId = String((poll as any).id);
+      const pollRow = poll as unknown as PollRow;
+      const pollId = String(pollRow.id);
       const { error: optErr } = await supabase.from('club_poll_options').insert(opts.map((o) => ({ poll_id: pollId, option_text: o })));
       if (optErr) throw optErr;
 

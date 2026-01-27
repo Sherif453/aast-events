@@ -136,9 +136,10 @@ export default function RSVPButton({
 
             //  keep rest of page (counts, lists) in sync
             router.refresh();
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error("RSVP Error:", error);
-            alert(`Error: ${error.message}`);
+            const message = error instanceof Error ? error.message : "RSVP failed";
+            alert(`Error: ${message}`);
         } finally {
             setIsLoading(false);
         }

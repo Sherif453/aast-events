@@ -24,21 +24,31 @@ export default async function AttendanceHistoryPage() {
         .order('checked_in_at', { ascending: false });
 
     // Fetch event details
-    let attendedEvents: any[] = [];
-    if (rawAttendees && rawAttendees.length > 0) {
-        const eventIds = rawAttendees.map((a) => a.event_id);
+    type AttendeeLiteRow = { event_id: string | number; checked_in_at: string | null; created_at: string; checked_in: boolean };
+    type EventLiteRow = { id: string | number; title: string; start_time: string; location: string; campus: string };
+    type AttendedEvent = EventLiteRow & { checked_in_at: string };
+
+    let attendedEvents: AttendedEvent[] = [];
+    const attendeeRows = (rawAttendees as unknown as AttendeeLiteRow[] | null) ?? [];
+    if (attendeeRows.length > 0) {
+        const eventIds = attendeeRows.map((a) => a.event_id);
         const { data: eventsData } = await supabase
             .from('events')
             .select('*')
             .in('id', eventIds);
 
-        attendedEvents = rawAttendees.map((a) => {
-            const event = eventsData?.find((e) => e.id === a.event_id);
-            return {
-                ...event,
-                checked_in_at: a.checked_in_at,
-            };
-        });
+        const eventRows = (eventsData as unknown as EventLiteRow[] | null) ?? [];
+
+        attendedEvents = attendeeRows
+            .map((a) => {
+                const event = eventRows.find((e) => String(e.id) === String(a.event_id));
+                if (!event || !a.checked_in_at) return null;
+                return {
+                    ...event,
+                    checked_in_at: a.checked_in_at,
+                };
+            })
+            .filter((v): v is AttendedEvent => Boolean(v));
     }
 
     return (

@@ -20,13 +20,14 @@ function normalizeRole(value: unknown): Role | null {
     return null;
 }
 
-function logSupabaseError(tag: string, err: any) {
+function logSupabaseError(tag: string, err: unknown) {
     if (!err) return;
+    const obj = typeof err === "object" && err !== null ? (err as Record<string, unknown>) : null;
     console.error(tag, {
-        message: err.message,
-        details: err.details,
-        hint: err.hint,
-        code: err.code,
+        message: obj?.message,
+        details: obj?.details,
+        hint: obj?.hint,
+        code: obj?.code,
     });
 }
 

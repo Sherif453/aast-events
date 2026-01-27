@@ -20,6 +20,8 @@ type UserOption = {
     email: string | null;
 };
 
+type ProfileLiteRow = { id: string; full_name: string | null; email: string | null };
+
 export default async function AdminUsersPage() {
     const supabase = await createClient();
 
@@ -73,7 +75,8 @@ export default async function AdminUsersPage() {
     }
 
     const adminProfileMap = new Map<string, { id: string; full_name: string | null; email: string | null }>();
-    (adminProfiles ?? []).forEach((p: any) => adminProfileMap.set(p.id, p));
+    const adminProfileRows = (adminProfiles as unknown as ProfileLiteRow[] | null) ?? [];
+    adminProfileRows.forEach((p) => adminProfileMap.set(String(p.id), p));
 
     const admins = adminRows.map((a) => {
         const p = adminProfileMap.get(a.id);
@@ -98,12 +101,12 @@ export default async function AdminUsersPage() {
         console.error('profiles(all users) fetch error:', allPrivateErr);
     }
 
-    const allUsers: UserOption[] =
-        (allPrivate ?? []).map((u: any) => ({
-            id: String(u.id),
-            full_name: u.full_name || 'Unknown',
-            email: u.email || null,
-        })) ?? [];
+    const allPrivateRows = (allPrivate as unknown as ProfileLiteRow[] | null) ?? [];
+    const allUsers: UserOption[] = allPrivateRows.map((u) => ({
+        id: String(u.id),
+        full_name: u.full_name || 'Unknown',
+        email: u.email || null,
+    }));
 
     //  Clubs list (super_admin sees all, club_admin sees only their club)
     let clubsQuery = supabase.from('clubs').select('id, name').order('name');

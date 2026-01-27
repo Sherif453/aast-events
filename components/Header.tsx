@@ -32,7 +32,7 @@ type TimeoutResult<T> =
     | { ok: false; timedOut: false; label: string; error: unknown };
 
 async function runWithTimeout<T>(fn: () => Promise<T>, ms: number, label: string): Promise<TimeoutResult<T>> {
-    let tid: any;
+    let tid: ReturnType<typeof setTimeout> | null = null;
     try {
         const result = await Promise.race([
             fn(),
@@ -40,10 +40,10 @@ async function runWithTimeout<T>(fn: () => Promise<T>, ms: number, label: string
                 tid = setTimeout(() => reject(new Error(label)), ms);
             }),
         ]);
-        clearTimeout(tid);
+        if (tid) clearTimeout(tid);
         return { ok: true, value: result as T };
-    } catch (e: any) {
-        clearTimeout(tid);
+    } catch (e: unknown) {
+        if (tid) clearTimeout(tid);
         if (e instanceof Error && e.message === label) return { ok: false, timedOut: true, label };
         return { ok: false, timedOut: false, label, error: e };
     }
@@ -253,7 +253,15 @@ export function Header() {
             while (attempt <= MAX_RETRIES) {
                 attempt++;
 
-                const dbRes = await runWithTimeout(
+                type AdminQuery = { data: unknown; error: unknown | null };
+                type ProfileQuery = {
+                    data: { full_name: string | null; avatar_url: string | null; email: string | null } | null;
+                    error: unknown | null;
+                };
+                type CountQuery = { count: number | null; error: unknown | null };
+                type DbTuple = readonly [AdminQuery, ProfileQuery, CountQuery, CountQuery];
+
+                const dbRes = await runWithTimeout<DbTuple>(
                     async () => {
                         const now = new Date();
                         const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -273,7 +281,7 @@ export function Header() {
                                 .eq("checked_in", true)
                                 .gte("checked_in_at", monthStart.toISOString()),
                         ]);
-                        return [adminQ, profileQ, verQ, monthQ];
+                        return [adminQ, profileQ, verQ, monthQ] as unknown as DbTuple;
                     },
                     DB_TIMEOUT_MS,
                     "header_db_timeout"
@@ -296,7 +304,7 @@ export function Header() {
                     return false;
                 }
 
-                const [adminQ, profileQ, verQ, monthQ] = dbRes.value as any[];
+                const [adminQ, profileQ, verQ, monthQ] = dbRes.value;
 
                 if (adminQ?.error) console.error("[Header] admin_users error:", adminQ.error);
                 if (profileQ?.error) console.error("[Header] profiles error:", profileQ.error);
@@ -519,7 +527,7 @@ export function Header() {
     useEffect(() => {
         if (!ready) return;
 
-        let timeoutId: any = null;
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
         const handleVisibilityChange = () => {
             if (document.visibilityState !== "visible") return;

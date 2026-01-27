@@ -44,7 +44,8 @@ export default function EventFeed({ events }: EventFeedProps) {
     const displayEvents = useMemo(() => {
         if (filter !== 'trending') return filtered;
 
-        const score = (e: any) => {
+        type FeedEvent = EventFeedProps["events"][number];
+        const score = (e: FeedEvent) => {
             const recent = Number(e.rsvps_last_24h ?? 0);
             const total = Number(e.attendee_count ?? 0);
             // Growth rate (smoothed): favors fast-growing events, not just raw size.
@@ -53,7 +54,7 @@ export default function EventFeed({ events }: EventFeedProps) {
 
         return filtered
             .slice()
-            .sort((a: any, b: any) => {
+            .sort((a: FeedEvent, b: FeedEvent) => {
                 const s = score(b) - score(a);
                 if (s !== 0) return s;
                 const r = Number(b.rsvps_last_24h ?? 0) - Number(a.rsvps_last_24h ?? 0);

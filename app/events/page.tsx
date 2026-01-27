@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import EventFeed from '@/components/EventFeed';
+import type { EventProps } from '@/components/EventCard';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -27,7 +28,8 @@ export default function EventsPage() {
 async function EventFeedServer() {
   const supabase = await createClient();
 
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const nowMs = new Date().getTime();
+  const thirtyDaysAgo = new Date(nowMs - 30 * 24 * 60 * 60 * 1000);
 
   const { data: events, error } = await supabase
     .from('events')
@@ -49,8 +51,18 @@ async function EventFeedServer() {
     return <EventFeed events={[]} />;
   }
 
-  const eventIds = (events || []).map((e: any) => String(e.id)).filter(Boolean);
-  const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  type ClubJoin = { id: string | number | null; name: string | null };
+  type EventRow = EventProps & {
+    id: string | number;
+    attendee_count?: number | null;
+    checked_in_count?: number | null;
+    club_id?: string | number | null;
+    clubs?: ClubJoin | null;
+  };
+
+  const eventRows = (events as unknown as EventRow[] | null) ?? [];
+  const eventIds = eventRows.map((e) => String(e.id)).filter(Boolean);
+  const since24h = new Date(nowMs - 24 * 60 * 60 * 1000);
 
   const { data: recentRsvps } = eventIds.length
     ? await supabase
@@ -58,23 +70,28 @@ async function EventFeedServer() {
         .select('event_id')
         .in('event_id', eventIds)
         .gte('created_at', since24h.toISOString())
-    : { data: [] as any[] };
+    : { data: [] as Array<{ event_id: string | number | null }> };
 
   const rsvpsLast24hByEventId = new Map<string, number>();
-  for (const row of (recentRsvps as any[]) ?? []) {
-    const id = String((row as any).event_id ?? '');
+  const recentRows = (recentRsvps as unknown as Array<{ event_id: string | number | null }> | null) ?? [];
+  for (const row of recentRows) {
+    const id = String(row.event_id ?? '');
     if (!id) continue;
     rsvpsLast24hByEventId.set(id, (rsvpsLast24hByEventId.get(id) ?? 0) + 1);
   }
 
-  const eventsWithCounts = (events || []).map((event: any) => ({
-    ...event,
-    attendee_count: event.attendee_count ?? 0,
-    checked_in_count: event.checked_in_count ?? 0,
-    rsvps_last_24h: rsvpsLast24hByEventId.get(String(event.id)) ?? 0,
-    club_name: event.clubs?.name || null,
-    club_id: event.clubs?.id || event.club_id || null,
-  }));
+  const eventsWithCounts = eventRows.map((event) => {
+    const id = String(event.id);
+    return {
+      ...event,
+      id,
+      attendee_count: Number(event.attendee_count ?? 0),
+      checked_in_count: Number(event.checked_in_count ?? 0),
+      rsvps_last_24h: rsvpsLast24hByEventId.get(id) ?? 0,
+      club_name: event.clubs?.name ?? null,
+      club_id: event.clubs?.id != null ? String(event.clubs.id) : event.club_id != null ? String(event.club_id) : null,
+    };
+  });
 
-  return <EventFeed events={eventsWithCounts as any} />;
+  return <EventFeed events={eventsWithCounts} />;
 }

@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { useRouter } from 'next/navigation';
 import { Save, X, Image as ImageIcon } from 'lucide-react';
 import Link from 'next/link';
+import Image from "next/image";
 
 export default function ClubForm({ userId }: { userId: string }) {
   void userId;
@@ -150,15 +151,18 @@ export default function ClubForm({ userId }: { userId: string }) {
 
       router.push('/clubs');
       router.refresh();
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errObj = error && typeof error === "object" ? (error as Record<string, unknown>) : null;
+      const message = error instanceof Error ? error.message : "Unknown error";
+
       console.error('Create club error:', {
-        message: error?.message,
-        code: error?.code,
-        details: error?.details,
-        hint: error?.hint,
+        message,
+        code: errObj?.code,
+        details: errObj?.details,
+        hint: errObj?.hint,
         fullError: error,
       });
-      alert(`Failed to create club: ${error?.message || 'Unknown error'}`);
+      alert(`Failed to create club: ${message}`);
     } finally {
       setIsSubmitting(false);
       setUploadProgress(0);
@@ -196,18 +200,21 @@ export default function ClubForm({ userId }: { userId: string }) {
       <div>
         <Label>Club Logo</Label>
         <div className="mt-2 space-y-3">
-          {logoPreview ? (
-            <div className="relative">
-              <img
-                src={logoPreview}
-                alt="Logo Preview"
-                className="w-48 h-48 object-contain rounded-lg border border-border bg-muted mx-auto"
-              />
-              <Button type="button" variant="destructive" size="sm" className="absolute top-2 right-2" onClick={removeLogo}>
-                <X className="h-4 w-4 mr-1" />
-                Remove
-              </Button>
-            </div>
+	          {logoPreview ? (
+	            <div className="relative">
+	              <Image
+	                src={logoPreview}
+	                alt="Logo Preview"
+	                width={192}
+	                height={192}
+	                className="w-48 h-48 object-contain rounded-lg border border-border bg-muted mx-auto"
+	                unoptimized
+	              />
+	              <Button type="button" variant="destructive" size="sm" className="absolute top-2 right-2" onClick={removeLogo}>
+	                <X className="h-4 w-4 mr-1" />
+	                Remove
+	              </Button>
+	            </div>
           ) : (
             <div className="border-2 border-dashed border-border rounded-lg p-8 text-center hover:border-primary/50 transition cursor-pointer">
 	              <input type="file" id="logo-upload" accept="image/png,image/jpeg,image/webp" onChange={handleLogoChange} className="hidden" />

@@ -161,11 +161,11 @@ export default function QRScanner({ onCheckInSuccess, disabled }: QRScannerProps
             }
 
             const cameraConfig = selectedCameraId
-                ? ({ deviceId: { exact: selectedCameraId } } as const)
-                : ({ facingMode: 'environment' } as const);
+                ? ({ deviceId: { exact: selectedCameraId } } satisfies MediaTrackConstraints)
+                : ({ facingMode: { ideal: 'environment' } } satisfies MediaTrackConstraints);
 
             await qr.start(
-                cameraConfig as any,
+                cameraConfig,
                 { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
                 async (decodedText: string) => {
                     await stopScanner();
@@ -182,8 +182,8 @@ export default function QRScanner({ onCheckInSuccess, disabled }: QRScannerProps
             setDebugInfo('');
 
             const msg =
-                typeof (e as any)?.message === 'string'
-                    ? (e as any).message
+                e instanceof Error
+                    ? e.message
                     : 'Camera failed to start. On mobile, ensure HTTPS and allow camera permission.';
             setMessageWithAutoClear({ type: 'error', text: msg }, 6000);
         } finally {

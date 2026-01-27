@@ -27,9 +27,10 @@ export default function DeleteClubButton({ clubId, clubName }: { clubId: string;
             if (error) throw error;
 
             router.refresh();
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Delete error:', error);
-            alert(`Failed to delete club: ${error.message}`);
+            const message = error instanceof Error ? error.message : 'Delete failed';
+            alert(`Failed to delete club: ${message}`);
         } finally {
             setIsDeleting(false);
         }

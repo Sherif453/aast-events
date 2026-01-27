@@ -2,14 +2,19 @@ import { createClient } from "@/lib/supabase/server";
 import { createHmac, timingSafeEqual } from "crypto";
 import { applyCors, applySecurityHeaders, preflight } from "@/lib/api/http";
 import { checkRateLimit, rateLimitResponse } from "@/lib/api/rateLimit";
-import { parseJsonBody, z, zUuid } from "@/lib/api/validation";
+import { parseJsonBody, z, zIdString } from "@/lib/api/validation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type AdminRole = "super_admin" | "club_admin" | "event_volunteer" | "read_only_analytics";
 
-const VERSION = "v1";
+type AdminUserRow = { role: AdminRole; club_id: string | null };
+type EventRow = { id: string | number; club_id: string | null };
+type AttendeeRow = { id: string | number; user_id: string; checked_in: boolean };
+type PublicProfileRow = { full_name: string | null };
+
+const VERSIONS = new Set(["v1", "v1dl", "v2dl"]);
 
 const cors = { methods: ["POST", "OPTIONS"], headers: ["Content-Type", "Authorization"] };
 
@@ -47,14 +52,31 @@ function safeEq(a: string, b: string) {
 
 function parseToken(token: string) {
   const parts = token.split(".");
-  if (parts.length !== 5) return null;
-  const [ver, attendeeId, eventId, expStr, sig] = parts;
-  if (ver !== VERSION) return null;
-  if (!zUuid.safeParse(attendeeId).success) return null;
-  if (!zUuid.safeParse(eventId).success) return null;
+  if (parts.length !== 5 && parts.length !== 7) return null;
+
+  // v1 / v1dl: ver.attendeeId.eventId.exp.sig
+  if (parts.length === 5) {
+    const [ver, attendeeId, eventId, expStr, sig] = parts;
+    if (!VERSIONS.has(ver)) return null;
+    if (!zIdString.safeParse(attendeeId).success) return null;
+    if (!zIdString.safeParse(eventId).success) return null;
+    const exp = Number(expStr);
+    if (!Number.isFinite(exp) || exp <= 0) return null;
+    return { attendeeId, eventId, exp, sig, payload: `${ver}.${attendeeId}.${eventId}.${exp}` };
+  }
+
+  // v2dl: ver.attendeeId.eventId.iat.exp.jti.sig
+  const [ver, attendeeId, eventId, iatStr, expStr, jti, sig] = parts;
+  if (!VERSIONS.has(ver)) return null;
+  if (!zIdString.safeParse(attendeeId).success) return null;
+  if (!zIdString.safeParse(eventId).success) return null;
+  const iat = Number(iatStr);
   const exp = Number(expStr);
+  if (!Number.isFinite(iat) || iat <= 0) return null;
   if (!Number.isFinite(exp) || exp <= 0) return null;
-  return { attendeeId, eventId, exp, sig, payload: `${ver}.${attendeeId}.${eventId}.${exp}` };
+  if (exp <= iat) return null;
+  if (typeof jti !== "string" || jti.length < 8 || jti.length > 128) return null;
+  return { attendeeId, eventId, exp, sig, payload: `${ver}.${attendeeId}.${eventId}.${iat}.${exp}.${jti}` };
 }
 
 export async function POST(req: Request) {
@@ -109,8 +131,9 @@ export async function POST(req: Request) {
   if (adminErr) return withHeaders(req, Response.json({ error: "admin_lookup_failed" }, { status: 500 }));
   if (!adminRow) return withHeaders(req, Response.json({ error: "forbidden" }, { status: 403 }));
 
-  const adminRole = adminRow.role as AdminRole;
-  const adminClubId = (adminRow as any).club_id ?? null;
+  const admin = adminRow as unknown as AdminUserRow;
+  const adminRole = admin.role;
+  const adminClubId = admin.club_id ?? null;
 
   const { data: eventRow, error: eventErr } = await supabase
     .from("events")
@@ -121,7 +144,8 @@ export async function POST(req: Request) {
   if (eventErr) return withHeaders(req, Response.json({ error: "event_lookup_failed" }, { status: 500 }));
   if (!eventRow) return withHeaders(req, Response.json({ error: "event_not_found" }, { status: 404 }));
 
-  const eventClubId = (eventRow as any).club_id ?? null;
+  const event = eventRow as unknown as EventRow;
+  const eventClubId = event.club_id ?? null;
   const allowed =
     adminRole === "super_admin" ||
     (eventClubId &&
@@ -141,20 +165,23 @@ export async function POST(req: Request) {
   if (attErr) return withHeaders(req, Response.json({ error: "attendee_lookup_failed" }, { status: 500 }));
   if (!attendeeRow) return withHeaders(req, Response.json({ error: "attendee_not_found" }, { status: 404 }));
 
-  if ((attendeeRow as any).checked_in) {
+  const attendee = attendeeRow as unknown as AttendeeRow;
+
+  if (attendee.checked_in) {
     const { data: profile } = await supabase
       .from("profiles_public")
       .select("full_name")
-      .eq("id", (attendeeRow as any).user_id)
+      .eq("id", attendee.user_id)
       .maybeSingle();
 
+    const pubProfile = profile as unknown as PublicProfileRow | null;
     return withHeaders(
       req,
       Response.json({
         ok: false,
         error: "already_checked_in",
-        attendeeId: (attendeeRow as any).id,
-        attendeeName: (profile as any)?.full_name ?? "Unknown User",
+        attendeeId: attendee.id,
+        attendeeName: pubProfile?.full_name ?? "Unknown User",
       })
     );
   }
@@ -163,7 +190,7 @@ export async function POST(req: Request) {
   const { data: updated, error: updErr } = await supabase
     .from("attendees")
     .update({ checked_in: true, checked_in_at: checkedInAt, checked_in_by: user.id })
-    .eq("id", (attendeeRow as any).id)
+    .eq("id", attendee.id)
     .eq("checked_in", false)
     .select("id")
     .maybeSingle();
@@ -176,16 +203,17 @@ export async function POST(req: Request) {
   const { data: profile } = await supabase
     .from("profiles_public")
     .select("full_name")
-    .eq("id", (attendeeRow as any).user_id)
+    .eq("id", attendee.user_id)
     .maybeSingle();
 
+  const pubProfile = profile as unknown as PublicProfileRow | null;
   return withHeaders(
     req,
     Response.json({
       ok: true,
-      attendeeId: (attendeeRow as any).id,
+      attendeeId: attendee.id,
       checkedInAt,
-      attendeeName: (profile as any)?.full_name ?? "Unknown User",
+      attendeeName: pubProfile?.full_name ?? "Unknown User",
     })
   );
 }

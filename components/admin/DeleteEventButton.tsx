@@ -29,9 +29,10 @@ export default function DeleteEventButton({ eventId, eventTitle, enabled = true 
             if (error) throw error;
 
             router.refresh();
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Delete error:', error);
-            alert(`Failed to delete event: ${error.message}`);
+            const message = error instanceof Error ? error.message : 'Delete failed';
+            alert(`Failed to delete event: ${message}`);
         } finally {
             setIsDeleting(false);
             setShowConfirm(false);

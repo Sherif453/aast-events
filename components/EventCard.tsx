@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { MapPin, Clock, User, Users } from "lucide-react";
+import Image from "next/image";
+import { passthroughImageLoader } from "@/lib/nextImageLoader";
 
 export interface EventProps {
     id: string;
@@ -64,17 +66,22 @@ export function EventCard({
                 className="block rounded-2xl shadow-sm border border-border overflow-hidden hover:shadow-lg transition-all duration-300 cursor-pointer bg-card"
             >
                 <div className="flex flex-col sm:flex-row">
-                    <div className="relative sm:w-64 flex-shrink-0">
-                        {event.image_url ? (
-                            <img
-                                src={event.image_url}
-                                alt={event.title}
-                                className="w-full h-48 sm:h-full object-cover"
-                            />
-                        ) : (
-                            <div className="w-full h-48 sm:h-full bg-gradient-to-br from-[#00386C] to-[#00509d] flex items-center justify-center">
-                                <span className="text-xl font-black text-white/70 px-4 text-center">
-                                    {event.title}
+	                    <div className="relative sm:w-64 flex-shrink-0">
+	                        {event.image_url ? (
+	                            <Image
+	                                src={event.image_url}
+	                                alt={event.title}
+	                                width={800}
+	                                height={480}
+	                                className="w-full h-48 sm:h-full object-cover"
+	                                sizes="(max-width: 640px) 100vw, 256px"
+	                                loader={passthroughImageLoader}
+	                                unoptimized
+	                            />
+	                        ) : (
+	                            <div className="w-full h-48 sm:h-full bg-gradient-to-br from-[#00386C] to-[#00509d] flex items-center justify-center">
+	                                <span className="text-xl font-black text-white/70 px-4 text-center">
+	                                    {event.title}
                                 </span>
                             </div>
                         )}
@@ -132,17 +139,22 @@ export function EventCard({
             onClick={() => router.push(`/event/${Number(event.id)}`)}
             className="block rounded-2xl shadow-xl overflow-hidden hover:shadow-2xl transition-all duration-300 transform hover:scale-[1.02] h-full flex flex-col cursor-pointer bg-card"
         >
-            <div className="relative flex-shrink-0">
-                {event.image_url ? (
-                    <img
-                        src={event.image_url}
-                        alt={event.title}
-                        className="w-full h-48 object-cover"
-                    />
-                ) : (
-                    <div className="w-full h-48 bg-gradient-to-br from-[#00386C] to-[#00509d] flex items-center justify-center">
-                        <span className="text-2xl font-black text-white/70 px-4 text-center line-clamp-2">
-                            {event.title}
+	            <div className="relative flex-shrink-0">
+	                {event.image_url ? (
+	                    <Image
+	                        src={event.image_url}
+	                        alt={event.title}
+	                        width={800}
+	                        height={480}
+	                        className="w-full h-48 object-cover"
+	                        sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+	                        loader={passthroughImageLoader}
+	                        unoptimized
+	                    />
+	                ) : (
+	                    <div className="w-full h-48 bg-gradient-to-br from-[#00386C] to-[#00509d] flex items-center justify-center">
+	                        <span className="text-2xl font-black text-white/70 px-4 text-center line-clamp-2">
+	                            {event.title}
                         </span>
                     </div>
                 )}

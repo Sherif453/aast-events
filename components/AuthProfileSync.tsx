@@ -33,8 +33,12 @@ export default function AuthProfileSync() {
       const res = await fetch("/api/auth/sync-profile", { method: "POST" });
       if (!res.ok) return;
 
-      const json = (await res.json().catch(() => null)) as any;
-      if (json?.ok && json?.googleLinked) {
+      const json: unknown = await res.json().catch(() => null);
+      const obj = json && typeof json === "object" ? (json as Record<string, unknown>) : null;
+      const ok = obj?.ok === true;
+      const googleLinked = obj?.googleLinked === true;
+
+      if (ok && googleLinked) {
         localStorage.setItem(successKey, String(now));
         localStorage.removeItem(attemptKey);
 

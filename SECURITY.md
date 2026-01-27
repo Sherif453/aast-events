@@ -9,9 +9,16 @@ This repo uses Next.js App Router + Supabase Auth (cookie-based). The goal is to
   - Auth-sensitive endpoints: **20 req/min/IP**, **30 req/min/user**
   - `OPTIONS` preflight is **never rate-limited**.
 - **Input validation**: Query params and JSON bodies are validated with strict schemas; unknown fields are rejected.
+  - Use shared helpers in `lib/api/validation.ts` (e.g. `parseQuery`, `zUuid`, `zIdString` where ids may be numeric or UUID).
 - **AuthZ**: No API route trusts `user_id` from the client; server derives identity from `supabase.auth.getUser()`.
 - **Service role**: Avoid using Supabase service role keys in any route reachable by browsers; keep RLS in effect for all user/admin routes.
   - Exception: admin-only exports may fall back to service role **only after** `getUser()` + role/scope checks succeed, to prevent regressions if RLS is too strict for private profile fields.
+
+## Image safety (next/image)
+
+- Prefer `components/UnoptimizedImage.tsx` for user-provided/dynamic remote URLs.
+  - Avoids needing permissive `next.config.ts` `images.remotePatterns` (can create SSRF/cost risks).
+  - Avoids passing function props (like `loader`) across the Server→Client boundary (runtime error in App Router).
 
 ## Required / supported environment variables
 

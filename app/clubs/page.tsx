@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Users, Plus, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import UnoptimizedImage from "@/components/UnoptimizedImage";
 
 export default async function ClubsPage({
     searchParams,
@@ -106,10 +107,16 @@ export default async function ClubsPage({
                                         className="bg-card rounded-xl shadow-sm border border-border p-6 hover:shadow-lg transition"
                                     >
                                         {club.image_url ? (
-                                            <img
-                                                src={club.image_url}
-                                                alt={club.name}
-                                                className="w-full h-48 object-cover rounded-lg mb-4" />
+                                            <div className="relative w-full h-48 rounded-lg mb-4 overflow-hidden">
+                                                <UnoptimizedImage
+                                                    src={club.image_url}
+                                                    alt={club.name}
+                                                    fill
+                                                    className="object-cover"
+                                                    sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                                                    unoptimized
+                                                />
+                                            </div>
                                         ) : (
                                             <div className="w-full h-48 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg mb-4 flex items-center justify-center">
                                                 <Users className="h-16 w-16 text-white/50" />

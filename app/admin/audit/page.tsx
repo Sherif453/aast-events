@@ -12,8 +12,10 @@ function normalizeRole(value: unknown): Role | null {
   return null;
 }
 
-function pickField(obj: any, keys: string[]) {
-  for (const k of keys) if (obj && obj[k] != null) return obj[k];
+function pickField(obj: unknown, keys: readonly string[]) {
+  const rec = obj && typeof obj === "object" ? (obj as Record<string, unknown>) : null;
+  if (!rec) return null;
+  for (const k of keys) if (rec[k] != null) return rec[k];
   return null;
 }
 
@@ -27,13 +29,15 @@ export default async function AuditLogPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/auth/login");
 
-  const { data: adminRow } = await supabase.from("admin_users").select("role, club_id").eq("id", user.id).maybeSingle();
+  type AdminRow = { role: string; club_id: string | null };
+  const { data: adminRowRaw } = await supabase.from("admin_users").select("role, club_id").eq("id", user.id).maybeSingle();
+  const adminRow = (adminRowRaw as unknown as AdminRow | null) ?? null;
   const role = normalizeRole(adminRow?.role);
 
   if (!role) redirect("/");
   if (role !== "super_admin" && role !== "club_admin") redirect("/admin");
 
-  const myClubId = (adminRow as any)?.club_id ?? null;
+  const myClubId = adminRow?.club_id ?? null;
 
   const { data: rawLogs, error: logErr } = await supabase.from("event_audit_log").select("*").limit(250);
 
@@ -65,10 +69,11 @@ export default async function AuditLogPage() {
     );
   }
 
-  const logs = ((rawLogs as any[]) ?? []).slice();
+  type AuditLogRow = Record<string, unknown>;
+  const logs = ((rawLogs as unknown as AuditLogRow[] | null) ?? []).slice();
 
-  const tsKey = (row: any) =>
-    pickField(row, ["created_at", "performed_at", "timestamp", "inserted_at", "updated_at"]) as string | null;
+  const tsKey = (row: AuditLogRow) =>
+    (pickField(row, ["created_at", "performed_at", "timestamp", "inserted_at", "updated_at"]) as string | null);
   logs.sort((a, b) => {
     const ta = tsKey(a) ? new Date(tsKey(a) as string).getTime() : 0;
     const tb = tsKey(b) ? new Date(tsKey(b) as string).getTime() : 0;
@@ -93,16 +98,25 @@ export default async function AuditLogPage() {
     )
   );
 
+  type EventRow = { id: string | number; title: string | null; club_id: string | null };
+  type ProfileRow = { id: string | number; full_name: string | null; email: string | null };
+
   const [{ data: eventsData }, { data: profilesData }] = await Promise.all([
-    eventIds.length ? supabase.from("events").select("id, title, club_id").in("id", eventIds) : Promise.resolve({ data: [] as any[] }),
-    actorIds.length ? supabase.from("profiles").select("id, full_name, email").in("id", actorIds) : Promise.resolve({ data: [] as any[] }),
+    eventIds.length
+      ? supabase.from("events").select("id, title, club_id").in("id", eventIds)
+      : Promise.resolve({ data: [] as EventRow[] }),
+    actorIds.length
+      ? supabase.from("profiles").select("id, full_name, email").in("id", actorIds)
+      : Promise.resolve({ data: [] as ProfileRow[] }),
   ]);
 
-  const eventMap = new Map<string, any>();
-  (eventsData ?? []).forEach((e: any) => eventMap.set(String(e.id), e));
+  const eventMap = new Map<string, EventRow>();
+  const eventRows = (eventsData as unknown as EventRow[] | null) ?? [];
+  eventRows.forEach((e) => eventMap.set(String(e.id), e));
 
-  const profileMap = new Map<string, any>();
-  (profilesData ?? []).forEach((p: any) => profileMap.set(String(p.id), p));
+  const profileMap = new Map<string, ProfileRow>();
+  const profileRows = (profilesData as unknown as ProfileRow[] | null) ?? [];
+  profileRows.forEach((p) => profileMap.set(String(p.id), p));
 
   const scopedLogs =
     role === "club_admin" && myClubId
@@ -113,13 +127,13 @@ export default async function AuditLogPage() {
         })
       : logs;
 
-  const actionLabel = (row: any) => {
+  const actionLabel = (row: AuditLogRow) => {
     const v = pickField(row, ["action", "event", "type", "operation"]) as string | null;
     return v ? String(v) : "change";
   };
 
-  const metaJson = (row: any) => {
-    const v = pickField(row, ["meta", "metadata", "changes", "diff", "details"]) as any;
+  const metaJson = (row: AuditLogRow) => {
+    const v = pickField(row, ["meta", "metadata", "changes", "diff", "details"]);
     if (v == null) return null;
     try {
       return typeof v === "string" ? v : JSON.stringify(v);
@@ -156,7 +170,7 @@ export default async function AuditLogPage() {
             <div className="p-10 text-center text-muted-foreground">No audit entries yet.</div>
           ) : (
             <div className="divide-y divide-border">
-              {scopedLogs.slice(0, 200).map((row: any, idx: number) => {
+              {scopedLogs.slice(0, 200).map((row, idx: number) => {
                 const eventId = String(pickField(row, ["event_id", "eventId", "event"]) ?? "");
                 const ev = eventMap.get(eventId);
 
@@ -205,4 +219,3 @@ export default async function AuditLogPage() {
     </div>
   );
 }
-

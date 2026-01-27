@@ -8,6 +8,13 @@ import { useRouter } from 'next/navigation';
 
 type AdminRole = 'super_admin' | 'club_admin' | 'event_volunteer' | 'read_only_analytics';
 
+type AdminUserInsert = {
+    id: string;
+    role: AdminRole;
+    assigned_by: string;
+    club_id: string | null;
+};
+
 interface AdminRoleManagerProps {
     currentAdmins: {
         id: string;
@@ -82,17 +89,15 @@ export default function AdminRoleManager({
         try {
             const finalRole: AdminRole = isClubAdmin ? 'event_volunteer' : selectedRole;
 
-            const payload: any = {
+            const payload: AdminUserInsert = {
                 id: selectedUser,
                 role: finalRole,
                 assigned_by: currentUserId,
+                club_id:
+                    finalRole === 'club_admin' || finalRole === 'event_volunteer'
+                        ? (isClubAdmin ? adminClubId : selectedClubId)
+                        : null,
             };
-
-            if (finalRole === 'club_admin' || finalRole === 'event_volunteer') {
-                payload.club_id = isClubAdmin ? adminClubId : selectedClubId;
-            } else {
-                payload.club_id = null;
-            }
 
             const { error } = await supabase.from('admin_users').insert(payload);
             if (error) throw error;
@@ -101,9 +106,10 @@ export default function AdminRoleManager({
             setSelectedRole('event_volunteer');
             setSelectedClubId(adminClubId || '');
             router.refresh();
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Add admin error:', error);
-            alert(`Failed to add admin: ${error.message}`);
+            const message = error instanceof Error ? error.message : 'Add failed';
+            alert(`Failed to add admin: ${message}`);
         } finally {
             setIsAdding(false);
         }
@@ -126,9 +132,10 @@ export default function AdminRoleManager({
             if (error) throw error;
 
             router.refresh();
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Remove admin error:', error);
-            alert(`Failed to remove admin: ${error.message}`);
+            const message = error instanceof Error ? error.message : 'Remove failed';
+            alert(`Failed to remove admin: ${message}`);
         } finally {
             setRemovingId(null);
         }

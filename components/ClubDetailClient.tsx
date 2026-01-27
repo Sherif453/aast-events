@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
+import Image from "next/image";
 import {
     ChevronLeft,
     ChevronRight,
@@ -19,13 +20,14 @@ import {
     Pencil,
     MessageSquare,
 } from 'lucide-react';
-import { EventCard } from '@/components/EventCard';
+import { EventCard, type EventProps } from '@/components/EventCard';
 import ClubChatPanel from '@/components/ClubChatPanel';
+import { passthroughImageLoader } from "@/lib/nextImageLoader";
 
 interface Club {
     id: string;
     name: string;
-    description: string;
+    description: string | null;
     image_url: string | null;
 }
 
@@ -55,7 +57,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 
 export default function ClubDetailClient({ clubId }: { clubId: string }) {
     const [club, setClub] = useState<Club | null>(null);
-    const [events, setEvents] = useState<any[]>([]);
+    const [events, setEvents] = useState<EventProps[]>([]);
     const [news, setNews] = useState<ClubNews[]>([]);
     const [isFollowing, setIsFollowing] = useState(false);
     const [followerCount, setFollowerCount] = useState(0);
@@ -141,83 +143,118 @@ export default function ClubDetailClient({ clubId }: { clubId: string }) {
 
             const nowIso = new Date().toISOString();
 
-            const [adminRes, clubRes, eventsRes, newsRes, followRes, followerCountRes] = await Promise.allSettled([
-                currentUserId
-                    ? withTimeout(
-                        Promise.resolve().then(async () => {
-                            return await supabase.from('admin_users').select('role, club_id').eq('id', currentUserId!).maybeSingle();
-                        }),
-                        5000,
-                        'club_admin_timeout'
-                    )
-                    : Promise.resolve(null as any),
-                withTimeout(
-                    Promise.resolve().then(async () => {
-                        return await supabase.from('clubs').select('*').eq('id', clubId).single();
-                    }),
-                    8000,
-                    'club_load_timeout'
-                ),
-                withTimeout(
-                    Promise.resolve().then(async () => {
-                        return await supabase
-                            .from('events')
-                            .select(
-                                `
+            type AdminRole = 'super_admin' | 'club_admin' | 'event_volunteer' | 'read_only_analytics';
+            type AdminRow = { role: AdminRole; club_id: string | null };
+            type SupabaseResponse<T> = { data: T | null; error: unknown | null };
+            type SupabaseListResponse<T> = { data: T[] | null; error: unknown | null };
+            type SupabaseMaybeSingleResponse<T> = { data: T | null; error: unknown | null };
+            type SupabaseCountResponse = { count: number | null; error: unknown | null };
+
+            type ClubRow = Club;
+            type ClubNewsRow = ClubNews;
+            type FollowRow = { id: string };
+            type ClubJoin = { id: string | number | null; name: string | null };
+            type EventRow = EventProps & {
+                id: string | number;
+                attendee_count?: number | null;
+                checked_in_count?: number | null;
+                club_id?: string | number | null;
+                clubs?: ClubJoin | null;
+            };
+
+            const adminPromise: Promise<SupabaseMaybeSingleResponse<AdminRow> | null> = currentUserId
+                ? withTimeout(
+                    (async () => {
+                        return (await supabase
+                            .from('admin_users')
+                            .select('role, club_id')
+                            .eq('id', currentUserId!)
+                            .maybeSingle()) as unknown as SupabaseMaybeSingleResponse<AdminRow>;
+                    })(),
+                    5000,
+                    'club_admin_timeout'
+                )
+                : Promise.resolve(null);
+
+            const clubPromise: Promise<SupabaseResponse<ClubRow>> = withTimeout(
+                (async () => {
+                    return (await supabase.from('clubs').select('*').eq('id', clubId).single()) as unknown as SupabaseResponse<ClubRow>;
+                })(),
+                8000,
+                'club_load_timeout'
+            );
+
+            const eventsPromise: Promise<SupabaseListResponse<EventRow>> = withTimeout(
+                (async () => {
+                    return (await supabase
+                        .from('events')
+                        .select(
+                            `
                                 *,
                                 clubs (
                                     id,
                                     name
                                 )
                             `
-                            )
-                            .eq('club_id', clubId)
-                            .gte('start_time', nowIso)
-                            .order('start_time', { ascending: true });
-                    }),
-                    8000,
-                    'club_events_timeout'
-                ),
-                withTimeout(
-                    Promise.resolve().then(async () => {
-                        return await supabase
-                            .from('club_news')
-                            .select('*')
-                            .eq('club_id', clubId)
-                            .order('created_at', { ascending: false })
-                            .limit(10);
-                    }),
-                    8000,
-                    'club_news_timeout'
-                ),
-                currentUserId
-                    ? withTimeout(
-                        Promise.resolve().then(async () => {
-                            return await supabase
-                                .from('club_followers')
-                                .select('id')
-                                .eq('user_id', currentUserId!)
-                                .eq('club_id', clubId)
-                                .maybeSingle();
-                        }),
-                        5000,
-                        'club_follow_timeout'
-                    )
-                    : Promise.resolve(null as any),
-                withTimeout(
-                    Promise.resolve().then(async () => {
-                        return await supabase
+                        )
+                        .eq('club_id', clubId)
+                        .gte('start_time', nowIso)
+                        .order('start_time', { ascending: true })) as unknown as SupabaseListResponse<EventRow>;
+                })(),
+                8000,
+                'club_events_timeout'
+            );
+
+            const newsPromise: Promise<SupabaseListResponse<ClubNewsRow>> = withTimeout(
+                (async () => {
+                    return (await supabase
+                        .from('club_news')
+                        .select('*')
+                        .eq('club_id', clubId)
+                        .order('created_at', { ascending: false })
+                        .limit(10)) as unknown as SupabaseListResponse<ClubNewsRow>;
+                })(),
+                8000,
+                'club_news_timeout'
+            );
+
+            const followPromise: Promise<SupabaseMaybeSingleResponse<FollowRow> | null> = currentUserId
+                ? withTimeout(
+                    (async () => {
+                        return (await supabase
                             .from('club_followers')
-                            .select('id', { count: 'exact', head: true })
-                            .eq('club_id', clubId);
-                    }),
-                    6000,
-                    'club_follow_count_timeout'
-                ),
-            ]);
+                            .select('id')
+                            .eq('user_id', currentUserId!)
+                            .eq('club_id', clubId)
+                            .maybeSingle()) as unknown as SupabaseMaybeSingleResponse<FollowRow>;
+                    })(),
+                    5000,
+                    'club_follow_timeout'
+                )
+                : Promise.resolve(null);
+
+            const followerCountPromise: Promise<SupabaseCountResponse> = withTimeout(
+                (async () => {
+                    return (await supabase
+                        .from('club_followers')
+                        .select('id', { count: 'exact', head: true })
+                        .eq('club_id', clubId)) as unknown as SupabaseCountResponse;
+                })(),
+                6000,
+                'club_follow_count_timeout'
+            );
+
+            const [adminRes, clubRes, eventsRes, newsRes, followRes, followerCountRes] = await Promise.allSettled([
+                adminPromise,
+                clubPromise,
+                eventsPromise,
+                newsPromise,
+                followPromise,
+                followerCountPromise,
+            ] as const);
 
             if (adminRes.status === 'fulfilled' && adminRes.value) {
-                const { data: adminData, error: adminErr } = adminRes.value as any;
+                const { data: adminData, error: adminErr } = adminRes.value;
                 if (!adminErr && adminData) {
                     const isSuperAdminUser = adminData.role === 'super_admin';
                     const isClubAdminOfThisClub = adminData.role === 'club_admin' && adminData.club_id === clubId;
@@ -230,22 +267,27 @@ export default function ClubDetailClient({ clubId }: { clubId: string }) {
             }
 
             if (clubRes.status === 'fulfilled') {
-                const { data: clubData } = clubRes.value as any;
-                setClub((clubData as any) ?? null);
+                const clubData = clubRes.value.data;
+                setClub(clubData ?? null);
             } else {
                 console.error('[Club] club load failed:', clubRes.reason);
                 setClub(null);
             }
 
             if (eventsRes.status === 'fulfilled') {
-                const { data: eventsData } = eventsRes.value as any;
-                const eventsWithCounts = ((eventsData as any[]) ?? []).map((event: any) => ({
-                    ...event,
-                    attendee_count: event.attendee_count ?? 0,
-                    checked_in_count: event.checked_in_count ?? 0,
-                    club_name: event.clubs?.name || null,
-                    club_id: event.clubs?.id || event.club_id || null,
-                }));
+                const eventsData = eventsRes.value.data ?? [];
+                const eventsWithCounts: EventProps[] = eventsData.map((event) => {
+                    const { clubs, club_id, attendee_count, checked_in_count, ...rest } = event;
+                    const id = String(event.id);
+                    return {
+                        ...(rest as EventProps),
+                        id,
+                        attendee_count: Number(attendee_count ?? 0),
+                        checked_in_count: Number(checked_in_count ?? 0),
+                        club_name: clubs?.name ?? null,
+                        club_id: clubs?.id != null ? String(clubs.id) : club_id != null ? String(club_id) : null,
+                    };
+                });
                 setEvents(eventsWithCounts);
             } else {
                 console.error('[Club] events load failed:', eventsRes.reason);
@@ -253,23 +295,20 @@ export default function ClubDetailClient({ clubId }: { clubId: string }) {
             }
 
             if (newsRes.status === 'fulfilled') {
-                const { data: newsData } = newsRes.value as any;
-                setNews(((newsData as any[]) ?? []) as ClubNews[]);
+                setNews(newsRes.value.data ?? []);
             } else {
                 console.error('[Club] news load failed:', newsRes.reason);
                 setNews([]);
             }
 
             if (followRes.status === 'fulfilled' && followRes.value) {
-                const { data: followData } = followRes.value as any;
-                setIsFollowing(!!followData);
+                setIsFollowing(Boolean(followRes.value.data));
             } else if (!currentUserId && !userId) {
                 setIsFollowing(false);
             }
 
             if (followerCountRes.status === 'fulfilled') {
-                const { count } = followerCountRes.value as any;
-                setFollowerCount(count || 0);
+                setFollowerCount(followerCountRes.value.count || 0);
             } else {
                 console.error('[Club] follower count failed:', followerCountRes.reason);
                 setFollowerCount(0);
@@ -354,7 +393,7 @@ export default function ClubDetailClient({ clubId }: { clubId: string }) {
                 setIsFollowing(true);
                 setFollowerCount((prev) => prev + 1);
             }
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Follow error:', error);
             alert('Failed to update follow status');
         }
@@ -375,9 +414,10 @@ export default function ClubDetailClient({ clubId }: { clubId: string }) {
 
             setNews(news.filter(n => n.id !== newsId));
             alert('News deleted successfully!');
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Delete error:', error);
-            alert(`Failed to delete news: ${error.message}`);
+            const message = error instanceof Error ? error.message : 'Delete failed';
+            alert(`Failed to delete news: ${message}`);
         }
     };
 
@@ -421,9 +461,10 @@ export default function ClubDetailClient({ clubId }: { clubId: string }) {
 
             cancelEdit();
             alert('News updated successfully!');
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Update error:', error);
-            alert(`Failed to update news: ${error.message}`);
+            const message = error instanceof Error ? error.message : 'Update failed';
+            alert(`Failed to update news: ${message}`);
         }
     };
 
@@ -572,10 +613,15 @@ export default function ClubDetailClient({ clubId }: { clubId: string }) {
 
                     <div className="flex items-start gap-7 flex-col md:flex-row">
                         {club.image_url ? (
-                            <img
+                            <Image
                                 src={club.image_url}
                                 alt={club.name}
+                                width={144}
+                                height={144}
                                 className="w-32 h-32 md:w-36 md:h-36 object-cover rounded-2xl border-4 border-white/30 shadow-2xl"
+                                sizes="144px"
+                                loader={passthroughImageLoader}
+                                unoptimized
                             />
                         ) : (
                             <div className="w-32 h-32 md:w-36 md:h-36 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center shadow-2xl border-4 border-white/30">
@@ -733,10 +779,15 @@ export default function ClubDetailClient({ clubId }: { clubId: string }) {
 
                                             {item.image_url && (
                                                 <div className="mb-4 -mx-6 -mt-6 pt-6">
-                                                    <img
+                                                    <Image
                                                         src={item.image_url}
                                                         alt={item.title}
+                                                        width={1200}
+                                                        height={600}
                                                         className="w-full h-48 object-cover"
+                                                        sizes="(max-width: 768px) 100vw, 50vw"
+                                                        loader={passthroughImageLoader}
+                                                        unoptimized
                                                     />
                                                 </div>
                                             )}

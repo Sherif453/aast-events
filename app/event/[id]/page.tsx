@@ -17,6 +17,8 @@ import RSVPButton from "@/components/RSVPButton";
 import { AvatarStack, AttendeeItem } from "@/components/AvatarStack";
 import { AttendeesList } from "@/components/AttendeesList";
 import EventReminderButton from "@/components/EventReminderButton";
+import UnoptimizedImage from "@/components/UnoptimizedImage";
+import type { User as SupabaseUser } from "@supabase/supabase-js";
 
 export const revalidate = 0;
 //  Ensure the page re-renders properly after auth changes (prevents “needs reload” issues)
@@ -54,22 +56,24 @@ export default async function EventDetailsPage({
     const supabase = await createClient();
 
     //  : use getUser() for verified auth data (avoid session-user warning)
-    let user: any = null;
+    let user: SupabaseUser | null = null;
     try {
         const { data: userData, error: userErr } = await supabase.auth.getUser();
 
         // Only warn if it's NOT the common “missing session” case.
-        if (userErr && (userErr as any)?.name !== "AuthSessionMissingError") {
+        const userErrName = userErr ? String((userErr as { name?: unknown } | null)?.name ?? "") : "";
+        if (userErr && userErrName !== "AuthSessionMissingError") {
             console.warn("[EventDetails] getUser error:", {
-                message: (userErr as any).message,
-                code: (userErr as any).code,
+                message: (userErr as { message?: unknown } | null)?.message,
+                code: (userErr as { code?: unknown } | null)?.code,
             });
         }
 
         user = userData?.user ?? null;
-    } catch (e: any) {
+    } catch (e: unknown) {
         // Keep it non-fatal and non-overlay-ish
-        console.warn("[EventDetails] getUser threw:", { message: e?.message });
+        const message = e instanceof Error ? e.message : String((e as { message?: unknown } | null)?.message ?? "");
+        console.warn("[EventDetails] getUser threw:", { message });
         user = null;
     }
 
@@ -141,13 +145,15 @@ export default async function EventDetailsPage({
     }
 
     //  SAFE: Fetch admin role + club_id (if logged in)
-    const { data: adminRow } = userId
-        ? await supabase
-            .from("admin_users")
-            .select("role, club_id")
-            .eq("id", userId)
-            .maybeSingle()
-        : { data: null as any };
+    const adminRow = userId
+        ? (
+            await supabase
+                .from("admin_users")
+                .select("role, club_id")
+                .eq("id", userId)
+                .maybeSingle()
+          ).data
+        : null;
 
     const adminRole = (adminRow?.role as AdminRole | undefined) ?? undefined;
     const adminClubId = adminRow?.club_id ?? null;
@@ -240,7 +246,14 @@ export default async function EventDetailsPage({
             <div className="relative w-full">
                 <div className="relative h-[400px] w-full overflow-hidden bg-muted">
                     {heroSrc ? (
-                        <img src={heroSrc} alt={currentEvent.title} className="h-full w-full object-cover object-center" />
+                        <UnoptimizedImage
+                            src={heroSrc}
+                            alt={currentEvent.title}
+                            fill
+                            className="object-cover object-center"
+                            sizes="100vw"
+                            unoptimized
+                        />
                     ) : (
                         <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-blue-900 to-blue-700">
                             <h1 className="text-3xl font-black text-white/30 px-8 text-center">{currentEvent.title}</h1>

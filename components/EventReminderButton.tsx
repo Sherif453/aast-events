@@ -6,6 +6,7 @@ import { Bell, BellOff, Loader2 } from 'lucide-react';
 
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
+import type { PostgrestSingleResponse } from "@supabase/supabase-js";
 
 const REMINDER_TYPES = ['1_day', '1_hour'] as const;
 
@@ -14,7 +15,9 @@ type Props = {
   initialUserId?: string | null; // optional server-provided user id
 };
 
-type PostgrestRes<T> = { data: T; error: any };
+type PostgrestBuilderLike<T> = PromiseLike<PostgrestSingleResponse<T>> & {
+  abortSignal?: (signal: AbortSignal) => PostgrestBuilderLike<T>;
+};
 
 export default function EventReminderButton({ eventId, initialUserId }: Props) {
   const router = useRouter();
@@ -39,15 +42,16 @@ export default function EventReminderButton({ eventId, initialUserId }: Props) {
   }, []);
 
   const postgrestWithTimeout = useCallback(
-    async <T,>(builder: any, ms: number, label: string): Promise<PostgrestRes<T>> => {
+    async <T,>(builder: PostgrestBuilderLike<T>, ms: number, label: string): Promise<PostgrestSingleResponse<T>> => {
       const controller = new AbortController();
       const t = setTimeout(() => controller.abort(), ms);
 
       try {
-        const res = await (typeof builder?.abortSignal === 'function' ? builder.abortSignal(controller.signal) : builder);
-        return res as PostgrestRes<T>;
-      } catch (err: any) {
-        if (err?.name === 'AbortError') throw new Error(label);
+        const res = await (typeof builder.abortSignal === 'function' ? builder.abortSignal(controller.signal) : builder);
+        return res;
+      } catch (err: unknown) {
+        const name = err instanceof Error ? err.name : String((err as { name?: unknown } | null)?.name ?? '');
+        if (name === 'AbortError') throw new Error(label);
         throw err;
       } finally {
         clearTimeout(t);
@@ -61,7 +65,7 @@ export default function EventReminderButton({ eventId, initialUserId }: Props) {
       if (eventIdNum == null) return;
 
       try {
-        const { data, error } = await postgrestWithTimeout<{ id: string }[]>(
+        const { data, error } = await postgrestWithTimeout(
           supabase
             .from('event_reminders')
             .select('id')

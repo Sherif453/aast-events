@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { User } from '@supabase/supabase-js';
 import { LogIn, LogOut, User as UserIcon } from 'lucide-react';
 import Link from 'next/link';
+import UnoptimizedImage from "@/components/UnoptimizedImage";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -58,7 +59,16 @@ export default function AuthButton() {
             <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="relative h-10 w-10 rounded-full overflow-hidden border border-border">
                     {user.user_metadata.avatar_url ? (
-                        <img src={user.user_metadata.avatar_url} alt="Avatar" className="h-full w-full object-cover" />
+                        <UnoptimizedImage
+                            src={String(user.user_metadata.avatar_url)}
+                            alt="Avatar"
+                            width={40}
+                            height={40}
+                            className="h-full w-full object-cover"
+                            sizes="40px"
+                            priority
+                            unoptimized
+                        />
                     ) : (
                         <div className="bg-[#00386C] text-white h-full w-full flex items-center justify-center font-bold">
                             {user.email?.charAt(0).toUpperCase()}

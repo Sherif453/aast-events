@@ -3,6 +3,7 @@ import { createRouteHandlerClient } from "@/lib/supabase/server";
 import { applyCors, applySecurityHeaders, preflight } from "@/lib/api/http";
 import { checkRateLimit, rateLimitResponse } from "@/lib/api/rateLimit";
 import { normalizeEmail } from "@/lib/api/validation";
+import type { UserIdentity } from "@supabase/supabase-js";
 
 const cors = { methods: ["POST", "OPTIONS"], headers: ["Content-Type", "Authorization"] };
 
@@ -53,12 +54,18 @@ export async function POST(request: NextRequest) {
     return respond({ ok: false, reason: "identities_failed" }, 200);
   }
 
-  const identities = (idsData?.identities ?? []) as any[];
-  const googleIdentity = identities.find((i) => i?.provider === "google");
+  const identities: UserIdentity[] = idsData?.identities ?? [];
+  const googleIdentity = identities.find((i) => i.provider === "google") ?? null;
+
+  const googleEmailFromIdentity = (() => {
+    const data = googleIdentity?.identity_data;
+    if (!data || typeof data !== "object") return null;
+    const email = (data as Record<string, unknown>).email;
+    return typeof email === "string" ? email : null;
+  })();
 
   // Only write profiles.email if Google is linked (avoids stale email for phone-only users).
-  const googleEmail =
-    (googleIdentity?.identity_data?.email as string | undefined) || (user.email as string | null) || null;
+  const googleEmail = googleEmailFromIdentity || user.email || null;
 
   const email = googleEmail ? normalizeEmail(googleEmail) : null;
 

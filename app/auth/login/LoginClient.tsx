@@ -93,11 +93,14 @@ export default function LoginPage() {
     };
   }, []);
 
-  // Reset UI feedback when switching tabs
-  useEffect(() => {
-    safeSetLoading(false);
-    safeSetMessage(null);
-  }, [tab, safeSetLoading, safeSetMessage]);
+  const switchTab = useCallback(
+    (t: Tab) => {
+      setTab(t);
+      safeSetLoading(false);
+      safeSetMessage(null);
+    },
+    [safeSetLoading, safeSetMessage]
+  );
 
   // If already signed in, redirect away from login
   useEffect(() => {
@@ -243,7 +246,7 @@ export default function LoginPage() {
             aria-controls={panelId('google')}
             type="button"
             variant={tab === 'google' ? 'default' : 'outline'}
-            onClick={() => setTab('google')}
+            onClick={() => switchTab('google')}
             className={tab === 'google' ? 'bg-[#00386C] hover:bg-[#00509d]' : ''}
           >
             Google
@@ -256,7 +259,7 @@ export default function LoginPage() {
             aria-controls={panelId('phone')}
             type="button"
             variant={tab === 'phone' ? 'default' : 'outline'}
-            onClick={() => setTab('phone')}
+            onClick={() => switchTab('phone')}
             className={tab === 'phone' ? 'bg-[#00386C] hover:bg-[#00509d]' : ''}
           >
             Phone OTP
