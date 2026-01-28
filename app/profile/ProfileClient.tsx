@@ -1033,9 +1033,8 @@ export default function ProfileClient() {
                     <div className="flex gap-3">
                         <Button
                             onClick={() => {
-                                setLoading(true);
-                                setAuthLoadIssue(null);
-                                setReloadKey((k) => k + 1);
+                                // Safest: hard reload resets any stuck client auth state.
+                                if (typeof window !== "undefined") window.location.reload();
                             }}
                         >
                             Retry

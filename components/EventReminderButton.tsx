@@ -19,6 +19,19 @@ type PostgrestBuilderLike<T> = PromiseLike<PostgrestSingleResponse<T>> & {
   abortSignal?: (signal: AbortSignal) => PostgrestBuilderLike<T>;
 };
 
+async function withSoftTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(label)), ms);
+  });
+
+  try {
+    return await Promise.race([Promise.resolve(p), timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export default function EventReminderButton({ eventId, initialUserId }: Props) {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
@@ -171,14 +184,18 @@ export default function EventReminderButton({ eventId, initialUserId }: Props) {
 
     try {
       if (hasReminder) {
-        const { error } = await postgrestWithTimeout<null>(
-          supabase
-            .from('event_reminders')
-            .delete()
-            .eq('user_id', userId)
-            .eq('event_id', eventIdNum)
-            .in('reminder_type', [...REMINDER_TYPES]),
-          10_000,
+        const { error } = await withSoftTimeout(
+          postgrestWithTimeout<null>(
+            supabase
+              .from('event_reminders')
+              .delete()
+              .eq('user_id', userId)
+              .eq('event_id', eventIdNum)
+              .in('reminder_type', [...REMINDER_TYPES]),
+            10_000,
+            'reminder_delete_abort_timeout'
+          ),
+          12_000,
           'reminder_delete_timeout'
         );
 
@@ -192,14 +209,18 @@ export default function EventReminderButton({ eventId, initialUserId }: Props) {
         }));
 
         // ignoreDuplicates => no UPDATE perms needed for “set again”
-        const { error } = await postgrestWithTimeout<null>(
-          supabase
-            .from('event_reminders')
-            .upsert(rows, {
-              onConflict: 'user_id,event_id,reminder_type',
-              ignoreDuplicates: true,
-            }),
-          10_000,
+        const { error } = await withSoftTimeout(
+          postgrestWithTimeout<null>(
+            supabase
+              .from('event_reminders')
+              .upsert(rows, {
+                onConflict: 'user_id,event_id,reminder_type',
+                ignoreDuplicates: true,
+              }),
+            10_000,
+            'reminder_upsert_abort_timeout'
+          ),
+          12_000,
           'reminder_upsert_timeout'
         );
 
@@ -207,6 +228,8 @@ export default function EventReminderButton({ eventId, initialUserId }: Props) {
         if (mountedRef.current) setHasReminder(true);
       }
 
+      // Re-check to avoid any stale UI if the request succeeded but state didn't match.
+      void checkReminder(userId);
       router.refresh();
     } catch (err) {
       console.error('[EventReminderButton] toggle failed:', err);

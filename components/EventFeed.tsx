@@ -7,9 +7,10 @@ import { Calendar, History, MapPin, Grid3x3, List, Users, TrendingUp } from 'luc
 
 interface EventFeedProps {
     events: (EventProps & { checked_in_count?: number; rsvps_last_24h?: number })[];
+    clubs?: { id: string; name: string }[];
 }
 
-export default function EventFeed({ events }: EventFeedProps) {
+export default function EventFeed({ events, clubs }: EventFeedProps) {
     const [filter, setFilter] = useState<'upcoming' | 'past' | 'trending'>('upcoming');
     const [campusFilter, setCampusFilter] = useState<string>('all');
     const [clubFilter, setClubFilter] = useState<string>('all');
@@ -66,33 +67,33 @@ export default function EventFeed({ events }: EventFeedProps) {
     // Get unique campuses
     const campuses = ['all', ...Array.from(new Set(events.map((e) => e.campus)))];
 
-    // Get unique clubs (id + name), include "No Club" only if needed
+    // Get club options (include all clubs, even those with 0 events in current window).
+    // Still include "No Club" only if we actually have events with no club.
     const clubOptions = useMemo(() => {
+        const options: { value: string; label: string }[] = [{ value: 'all', label: 'All Clubs' }];
+
+        const hasNoClub = events.some((e) => !e.club_id);
+        if (hasNoClub) options.push({ value: 'no_club', label: 'No Club' });
+
+        if (clubs && clubs.length > 0) {
+            clubs
+                .slice()
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .forEach((c) => options.push({ value: c.id, label: c.name }));
+            return options;
+        }
+
+        // Fallback: derive only from events (older behavior).
         const map = new Map<string, string>();
-        let hasNoClub = false;
-
         for (const e of events) {
-            if (e.club_id && e.club_name) {
-                map.set(e.club_id, e.club_name);
-            } else if (!e.club_id) {
-                hasNoClub = true;
-            }
+            if (e.club_id && e.club_name) map.set(e.club_id, e.club_name);
         }
-
-        const options: { value: string; label: string }[] = [
-            { value: 'all', label: 'All Clubs' },
-        ];
-
-        if (hasNoClub) {
-            options.push({ value: 'no_club', label: 'No Club' });
-        }
-
         Array.from(map.entries())
             .sort((a, b) => a[1].localeCompare(b[1]))
             .forEach(([id, name]) => options.push({ value: id, label: name }));
 
         return options;
-    }, [events]);
+    }, [events, clubs]);
 
     return (
         <div className="space-y-6">

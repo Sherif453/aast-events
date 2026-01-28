@@ -39,20 +39,27 @@ async function EventFeedServer() {
   const nowMs = new Date().getTime();
   const thirtyDaysAgo = new Date(nowMs - 30 * 24 * 60 * 60 * 1000);
 
-  const { data: events, error } = await supabase
-    .from('events')
-    .select(
-      `
-        *,
-        clubs (
-          id,
-          name
-        )
-      `
-    )
-    .gte('start_time', thirtyDaysAgo.toISOString())
-    .order('start_time', { ascending: true })
-    .limit(100);
+  const [{ data: events, error }, { data: clubs, error: clubsErr }] = await Promise.all([
+    supabase
+      .from('events')
+      .select(
+        `
+          *,
+          clubs (
+            id,
+            name
+          )
+        `
+      )
+      .gte('start_time', thirtyDaysAgo.toISOString())
+      .order('start_time', { ascending: true })
+      .limit(100),
+    supabase.from('clubs').select('id, name').order('name').limit(500),
+  ]);
+
+  if (clubsErr) {
+    console.error('Error fetching clubs for filter:', clubsErr);
+  }
 
   if (error) {
     console.error('Error fetching events:', error);
@@ -108,7 +115,12 @@ async function EventFeedServer() {
     };
   });
 
-  return <EventFeed events={eventsWithCounts} />;
+  const clubRows = (clubs as unknown as Array<{ id: string | number; name: string | null }> | null) ?? [];
+  const clubList = clubRows
+    .filter((c) => c?.id != null && c?.name)
+    .map((c) => ({ id: String(c.id), name: String(c.name) }));
+
+  return <EventFeed events={eventsWithCounts} clubs={clubList} />;
 }
 
 function EventFeedSkeleton() {
